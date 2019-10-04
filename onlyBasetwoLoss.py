@@ -2,6 +2,8 @@ import os
 import numpy as np
 import argparse
 import torch
+torch.multiprocessing.freeze_support()
+torch.set_num_threads(1)    
 import torch.optim as optim
 from tqdm import *
 from torch.autograd import Variable
@@ -15,73 +17,11 @@ import torchvision
 # import matplotlib.pyplot as plt
 from option import Options
 from datasets import oneShotBaseCls
-from datasets import oneShotUnsuperviseCls
 
+args = Options().parse()
 from torch.optim import lr_scheduler
 import copy
 import time
-rootdir = os.getcwd()
-
-args = Options().parse()
-
-from logger import Logger
-logger = Logger('./logs/'+args.tensorname)##
-
-image_datasets = {}
-
-print('sample from base!')
-image_datasets = {x: oneShotBaseCls.miniImagenetOneshotDataset(type=x,ways= (args.trainways if x=='train' else args.ways),shots=args.shots,test_num=args.test_num,epoch=args.epoch,galleryNum=args.galleryNum)
-                  for x in ['train', 'val','test']}
-
-def worker_init_fn(worker_id):                                                          
-    np.random.seed(np.random.get_state()[1][0] + worker_id)
-
-dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=1,
-                                             shuffle=(x=='train'), num_workers=args.nthreads,worker_init_fn=worker_init_fn)
-              for x in ['train', 'val','test']}
-dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'val','test']}
-
-######################################################################
-# Weight matrix pre-process
-
-patch_xl = []
-patch_xr = []
-patch_yl = []
-patch_yr = []
-
-if args.Fang == 3:
-    point = [0,74,148,224]
-elif args.Fang == 5:
-    point = [0,44,88,132,176,224]
-elif args.Fang == 7:
-    point = [0,32,64,96,128,160,192,224]
-
-
-
-for i in range(args.Fang):
-    for j in range(args.Fang):
-        patch_xl.append(point[i])
-        patch_xr.append(point[i+1])
-        patch_yl.append(point[j])
-        patch_yr.append(point[j+1])
-
-fixSquare = torch.zeros(1,args.Fang*args.Fang,3,224,224).float()
-for i in range(args.Fang*args.Fang):
-    fixSquare[:,i,:,patch_xl[i]:patch_xr[i],patch_yl[i]:patch_yr[i]] = 1.00
-fixSquare = fixSquare.cuda()
-
-oneSquare = torch.ones(1,3,224,224).float()
-oneSquare = oneSquare.cuda()
-######################################################################
-#plot related
-import matplotlib
-matplotlib.use('agg')
-import matplotlib.pyplot as plt
-from matplotlib.pyplot import imshow
-#################################################3
-
-mu = [0.485, 0.456, 0.406]
-sigma = [0.229, 0.224, 0.225]
 class Denormalize(object):
     def __init__(self, mean, std):
         self.mean = mean
@@ -91,7 +31,6 @@ class Denormalize(object):
         for t, m, s in zip(tensor, self.mean, self.std):
             t.mul_(s).add_(m)
         return tensor
-
 
 class Clip(object):
     def __init__(self):
@@ -103,14 +42,7 @@ class Clip(object):
         t[t<0] = 0
         return t
 
-detransform = transforms.Compose([
-        Denormalize(mu, sigma),
-        Clip(),
-        transforms.ToPILImage(),
-    ])
-
-
-def plotPicture(image,name):
+def plotPicture(image,name,detransform):
     fig = plt.figure()
     ax = fig.add_subplot(111)  
     A = image.clone()
@@ -270,63 +202,6 @@ class GNet(nn.Module):
             Cfeature = self.fc(A)
             return Cfeature
 
-GNet = GNet()
-
-
-if args.GNet!='none':
-    GNet.load_state_dict(torch.load('models/'+args.GNet+'.t7', map_location=lambda storage, loc: storage))
-    print('loading ',args.GNet)
-
-if torch.cuda.device_count() > 1:
-    print("Let's use", torch.cuda.device_count(), "GPUs!")
-    # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
-    GNet = nn.DataParallel(GNet)
-
-GNet = GNet.cuda()
-
-#############################################
-#Define the optimizer
-
-if torch.cuda.device_count() > 1:
-    if args.scratch == 0:
-        optimizer_attention = torch.optim.Adam([
-                    {'params': GNet.module.attentionNet.parameters()},
-                    {'params': GNet.module.toWeight.parameters(), 'lr':  args.LR}
-                ], lr=args.LR) # 0.001
-        optimizer_classifier = torch.optim.Adam([
-                    {'params': GNet.module.CNet.parameters(),'lr': args.clsLR*0.1},
-                    {'params': GNet.module.fc.parameters(), 'lr':  args.clsLR}
-                ]) # 0.00003
-        optimizer_scale = torch.optim.Adam([
-                    {'params': GNet.module.scale}
-                ], lr=args.LR) # 0.001
-    else:
-        optimizer_attention = torch.optim.Adam([
-                    {'params': GNet.module.ANet.parameters()},
-                    {'params': GNet.module.BNet.parameters()},
-                    {'params': GNet.module.toWeight.parameters()}
-                ], lr=args.LR)
-        optimizer_classifier = torch.optim.Adam([
-                    {'params': GNet.module.CNet.parameters()},
-                    {'params': GNet.module.fc.parameters()}
-                ], lr=args.LR)
-else:
-    optimizer_GNet = torch.optim.Adam([
-                {'params': base_params},
-                {'params': GNet.toWeight.parameters(), 'lr':  args.LR}
-            ], lr=args.LR*0.1)
-
-Attention_lr_scheduler = lr_scheduler.StepLR(optimizer_attention, step_size=40, gamma=0.5)
-Classifier_lr_scheduler = lr_scheduler.StepLR(optimizer_classifier, step_size=40, gamma=0.5)
-clsCriterion = nn.CrossEntropyLoss()
-
-######################################################################
-# Train and evaluate
-# ^^^^^^^^^^^^^^^^^^
-
-# Gallery 
-Gallery = image_datasets['test'].Gallery
-galleryFeature = image_datasets['test'].acquireFeature(GNet,args.batchSize).cpu()
 
 
 def euclidean_dist(x, y):
@@ -345,7 +220,7 @@ def euclidean_dist(x, y):
 
     return (torch.pow(x - y, 2)*A).sum(2)
 
-def iterateMix(supportImages,supportFeatures,supportBelongs,supportReals,ways):
+def iterateMix(supportImages,supportFeatures,supportBelongs,supportReals,ways, galleryFeature, args):
     '''
         Inputs:
             supportImages ways,shots,3,224,224
@@ -424,12 +299,118 @@ def batchModel(model,AInputs,requireGrad):
     return Cfeatures
 
 def train_model(model,num_epochs=25):
+    
+    rootdir = os.getcwd()
+
+    args = Options().parse()
+
+    image_datasets = {}
+
+    image_datasets = {x: oneShotBaseCls.miniImagenetOneshotDataset(type=x,ways= (args.trainways if x=='train' else args.ways),shots=args.shots,test_num=args.test_num,epoch=args.epoch,galleryNum=args.galleryNum)
+                      for x in ['train', 'val','test']}
+
+
+    dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=1,
+                                                 shuffle=(x=='train'), num_workers=args.nthreads)
+                  for x in ['train', 'val','test']}
+    dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'val','test']}
+
+    ######################################################################
+    # Weight matrix pre-process
+
+    patch_xl = []
+    patch_xr = []
+    patch_yl = []
+    patch_yr = []
+
+    if args.Fang == 3:
+        point = [0,74,148,224]
+    elif args.Fang == 5:
+        point = [0,44,88,132,176,224]
+    elif args.Fang == 7:
+        point = [0,32,64,96,128,160,192,224]
+
+
+
+    for i in range(args.Fang):
+        for j in range(args.Fang):
+            patch_xl.append(point[i])
+            patch_xr.append(point[i+1])
+            patch_yl.append(point[j])
+            patch_yr.append(point[j+1])
+
+    fixSquare = torch.zeros(1,args.Fang*args.Fang,3,224,224).float()
+    for i in range(args.Fang*args.Fang):
+        fixSquare[:,i,:,patch_xl[i]:patch_xr[i],patch_yl[i]:patch_yr[i]] = 1.00
+    fixSquare = fixSquare.cuda()
+
+    oneSquare = torch.ones(1,3,224,224).float()
+    oneSquare = oneSquare.cuda()
+    ######################################################################
+    #plot related
+    import matplotlib
+    matplotlib.use('agg')
+    import matplotlib.pyplot as plt
+    from matplotlib.pyplot import imshow
+    #################################################3
+
+    mu = [0.485, 0.456, 0.406]
+    sigma = [0.229, 0.224, 0.225]
     since = time.time()
 
     best_model_wts = copy.deepcopy(model.state_dict())
     best_loss = 1000000000.0
 
     
+    detransform = transforms.Compose([
+            Denormalize(mu, sigma),
+            Clip(),
+            transforms.ToPILImage(),
+        ])
+
+    #############################################
+    #Define the optimizer
+
+    # if torch.cuda.device_count() > 1:
+    if args.scratch == 0:
+        optimizer_attention = torch.optim.Adam([
+                    {'params': model.attentionNet.parameters()},
+                    {'params': model.toWeight.parameters(), 'lr':  args.LR}
+                ], lr=args.LR) # 0.001
+        optimizer_classifier = torch.optim.Adam([
+                    {'params': model.CNet.parameters(),'lr': args.clsLR*0.1},
+                    {'params': model.fc.parameters(), 'lr':  args.clsLR}
+                ]) # 0.00003
+        optimizer_scale = torch.optim.Adam([
+                    {'params': model.scale}
+                ], lr=args.LR) # 0.001
+    else:
+        optimizer_attention = torch.optim.Adam([
+                    {'params': model.ANet.parameters()},
+                    {'params': model.BNet.parameters()},
+                    {'params': model.toWeight.parameters()}
+                ], lr=args.LR)
+        optimizer_classifier = torch.optim.Adam([
+                    {'params': model.CNet.parameters()},
+                    {'params': model .fc.parameters()}
+                ], lr=args.LR)
+    # else:
+        # optimizer_GNet = torch.optim.Adam([
+                    # {'params': base_params},
+                    # {'params': GNet.toWeight.parameters(), 'lr':  args.LR}
+                # ], lr=args.LR*0.1)
+
+    Attention_lr_scheduler = lr_scheduler.StepLR(optimizer_attention, step_size=40, gamma=0.5)
+    Classifier_lr_scheduler = lr_scheduler.StepLR(optimizer_classifier, step_size=40, gamma=0.5)
+    clsCriterion = nn.CrossEntropyLoss()
+
+    ######################################################################
+    # Train and evaluate
+    # ^^^^^^^^^^^^^^^^^^
+
+    # Gallery 
+    Gallery = image_datasets['test'].Gallery
+    galleryFeature = image_datasets['test'].acquireFeature(model,args.batchSize).cpu()
 
     print(type(galleryFeature))
     print('Gallery size: ',galleryFeature.size())
@@ -465,7 +446,7 @@ def train_model(model,num_epochs=25):
 
             for i,(supportInputs,supportLabels,supportReals,testInputs,testLabels,testReals) in tqdm(enumerate(dataloaders[phase])):
 
-                if epoch ==0 and i>4000:
+                if epoch == 0 and i>4000:
                     break
                 
                 Times = Times + 1
@@ -482,7 +463,7 @@ def train_model(model,num_epochs=25):
                 supportFeatures = batchModel(model,supportInputs,requireGrad=False)
                 testFeatures = batchModel(model,testInputs,requireGrad=True)
 
-                AInputs, BInputs, ABLabels, ABReals = iterateMix(supportInputs,supportFeatures,supportLabels,supportReals,ways=ways)
+                AInputs, BInputs, ABLabels, ABReals = iterateMix(supportInputs,supportFeatures,supportLabels,supportReals,ways=ways, galleryFeature=galleryFeature, args=args)
                 
 
                 Batch = (AInputs.size(0)+args.batchSize-1)//args.batchSize
@@ -618,16 +599,33 @@ def train_model(model,num_epochs=25):
     return model
 
 
-GNet = train_model(GNet, num_epochs=120)
-##
-
-# ... after training, save your model 
-
-if torch.cuda.device_count() > 1:
-    torch.save(GNet.module.state_dict(),os.path.join(rootdir,'models/'+str(args.tensorname)+'.t7'))
-else:
-    torch.save(GNet.state_dict(),os.path.join(rootdir,'models/'+str(args.tensorname)+'.t7'))
-
 # .. to load your previously training model:
 #model.load_state_dict(torch.load('mytraining.pt'))
+def run():
+    model = GNet()
 
+
+    if args.GNet!='none':
+        model.load_state_dict(torch.load('models/'+args.GNet+'.t7', map_location=lambda storage, loc: storage))
+        print('loading ',args.GNet)
+
+    # if torch.cuda.device_count() > 1:
+        # print("Let's use", torch.cuda.device_count(), "GPUs!")
+        # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+    # GNet = nn.DataParallel(GNet)
+
+    model = model.cuda()
+
+    model = train_model(model, num_epochs=120)
+    ##
+
+    # ... after training, save your model 
+
+    if torch.cuda.device_count() > 1:
+        torch.save(model.module.state_dict(),os.path.join(rootdir,'models/'+str(args.tensorname)+'.t7'))
+    else:
+        torch.save(model.state_dict(),os.path.join(rootdir,'models/'+str(args.tensorname)+'.t7'))
+
+
+if __name__ == '__main__':
+    run()
