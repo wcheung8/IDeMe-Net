@@ -40,8 +40,8 @@ A PyTorch implementation of "Image Deformation Meta-Networks for One-Shot Learni
 ## Installation
 
 ```
-python=2.7
-pytorch=0.4.0
+python=3.6
+pytorch=1.2
 ```
 
 ## Datasets
