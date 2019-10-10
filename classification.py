@@ -22,13 +22,19 @@ rootdir = os.getcwd()
 
 args = Options().parse()
 
+from datasets import miniimagenet as mini
 
-image_datasets = {x: softRandom.miniImagenetEmbeddingDataset(type=x)
-                  for x in ['train', 'val','test']}
+
+# To do 1: Change the directory below to the folder where you save miniImagenet pickle files
+ren_data = {x: mini.MiniImagenet("/home/root/data/miniImagenet", x, nshot=240, num_distractor=0, nway=64) for x in ['train']}
+
+
+image_datasets = {x: softRandom.miniImagenetEmbeddingDataset(ren_data=ren_data['train'].__getAllLabeled__(),type=x)
+                  for x in ['train']}
 dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=args.batchSize,
                                              shuffle=True, num_workers=args.nthreads)
-              for x in ['train', 'val','test']}
-dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'val','test']}
+              for x in ['train']}
+dataset_sizes = {x: len(image_datasets[x]) for x in ['train']}
 
 
 ######################################################################
