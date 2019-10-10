@@ -2,7 +2,7 @@
 
 ## Things to change before running:
 0. miniimagenet.py
-	# To do 1: Change the paths below to the train/val/test csv files respectively.
+	To do 1: Change the paths below to the train/val/test csv files respectively.
 
 
 1. softRandom.py
@@ -13,10 +13,10 @@
 
 
 3. classification.py
-	# To do 1: Change the directory below to the folder where you save miniImagenet pickle files
+	To do 1: Change the directory below to the folder where you save miniImagenet pickle files
 
 4. onlyBasetwoLoss.py
-	# To do 1: Change the directory below to the folder where you save miniImagenet pickle files
+	To do 1: Change the directory below to the folder where you save miniImagenet pickle files
     
     
     
