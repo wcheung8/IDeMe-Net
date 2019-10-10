@@ -50,6 +50,8 @@ class Options():
                             help='whether to fix cls part')
         parser.add_argument('--chooseNum', default=15,type=int,
                             help='number of choosing')
+        parser.add_argument('--num_unlabel', default=5,type=int,
+                            help='number of unlabeled images per class')
 
         self.parser = parser
 

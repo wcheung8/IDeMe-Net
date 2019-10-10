@@ -313,7 +313,11 @@ def train_model(model,num_epochs=25):
     args = Options().parse()
 
     # To do 1: Change the directory below to the folder where you save miniImagenet pickle files
-    ren_data = {x: mini.MiniImagenet("/home/root/data/miniImagenet", x, nshot=1)
+    ren_data = {x: mini.MiniImagenet("/home/root/data/miniImagenet",x, \
+                                                                    nshot=args.shots, \
+                                                                    nway=args.trainways, \
+                                                                    num_unlabel=args.num_unlabel, \
+                                                                    num_test=args.test_num)
               for x in ['train', 'val','test']}
 
     image_datasets = {}
