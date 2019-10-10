@@ -15,10 +15,11 @@ import numpy
 #from watch import NlabelTovector
 import getpass  
 userName = getpass.getuser()
-import pickle as pkl
-pathminiImageNet = 'C://Users/bezer/Desktop/IDeMe-Net/'
+
+pathminiImageNet = '/home/'+userName+'/data/miniImagenet/'
 pathImages = os.path.join(pathminiImageNet,'images/')
 # LAMBDA FUNCTIONS
+filenameToPILImage = lambda x: Image.open(x)
 
 np.random.seed(2191)
 
@@ -28,14 +29,16 @@ patch_yl = [0,74,148,0,74,148,0,74,148]
 patch_yr = [74,148,224,74,148,224,74,148,224]
 
 class miniImagenetOneshotDataset(data.Dataset):
-    def __init__(self, dataroot = 'C://Users/bezer/Desktop/IDeMe-Net/datasplit', type = 'train',ways=5,shots=1,test_num=1,epoch=100,galleryNum = 10):
+    def __init__(self, ren_data, dataroot = '/home/'+userName+'/data/miniImagenet', type = 'train',ways=5,shots=1,test_num=1,epoch=100,galleryNum = 10):
         # oneShot setting
+        self.ren_data = ren_data
         self.ways = ways
         self.shots = shots
         self.test_num = test_num # indicate test number of each class
         self.__size = epoch
 
         self.transform = transforms.Compose([
+                                            #filenameToPILImage,
                                             transforms.Resize(256),
                                             transforms.CenterCrop(224),
                                             transforms.ToTensor(),
@@ -43,6 +46,7 @@ class miniImagenetOneshotDataset(data.Dataset):
                                             ])
 
         self.galleryTransform = transforms.Compose([
+                                            #filenameToPILImage,
                                             transforms.RandomHorizontalFlip(p=0.5),
                                             transforms.Resize(256),
                                             transforms.CenterCrop(224),
@@ -50,166 +54,221 @@ class miniImagenetOneshotDataset(data.Dataset):
                                             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
                                             ])
 
+        # def loadSplit(splitFile):
+        #     dictLabels = {}
+        #     with open(splitFile) as csvfile:
+        #         csvreader = csv.reader(csvfile, delimiter=',')
+        #         next(csvreader, None)
+        #         for i,row in enumerate(csvreader):
+        #             filename = row[0]
+        #             label = row[1]
 
-        def _read_cache(cache_path):
-            dictLabels = {}
-            c = 0
-            if os.path.exists(cache_path):
-              try:
-                with open(cache_path, "rb") as f:
-                    data = pkl.load(f, encoding='bytes')
-                  
-                    for img, cls in zip(data[b'image_data'], data[b'class_dict']):
-                        if cls in dictLabels.keys():
-                            dictLabels[cls].append(img)
-                        else:       
-                            dictLabels[cls] = [img]
-                return dictLabels
-              except:
-                with open(cache_path, "rb") as f:
-                    data = pkl.load(f)
-                    
-                    for cls, idxs in data['class_dict'].items():
-                    
-                        dictLabels[cls] = []
-                        
-                        for i in idxs:
-                            dictLabels[cls].append(Image.fromarray(data['image_data'][i]))
-                return dictLabels
-            else:
-                print("NO FILE FOUND")
-                exit()
+        #             if label in dictLabels.keys():
+        #                 dictLabels[label].append(filename)
+        #             else:
+        #                 dictLabels[label] = [filename]
+        #     return dictLabels
 
-    
-        self.miniImagenetImagesDir = os.path.join(dataroot,'images')
+        # self.miniImagenetImagesDir = os.path.join(dataroot,'images')
 
-        self.unData = _read_cache(cache_path = os.path.join(dataroot,'mini-imagenet-cache-train' + '.pkl'))
-        self.data = _read_cache(cache_path   = os.path.join(dataroot,'mini-imagenet-cache-' + type + '.pkl'))
+        # self.unData = loadSplit(splitFile = os.path.join(dataroot,'train' + '.csv'))
+        # self.data = loadSplit(splitFile = os.path.join(dataroot,type + '.csv'))
 
-        self.type = type    
-        self.data = collections.OrderedDict(sorted(self.data.items()))
-        self.unData = collections.OrderedDict(sorted(self.unData.items()))
-        self.galleryNum = galleryNum    
+        # self.type = type
+        # self.data = collections.OrderedDict(sorted(self.data.items()))
+        # self.unData = collections.OrderedDict(sorted(self.unData.items()))
+        # self.galleryNum = galleryNum
 
-        # sample Gallery
-        self.Gallery = []
-        import random
-        random.seed(2019)
-        for classes in self.unData.keys():
-            Files = random.sample(self.unData[classes], self.galleryNum)
-            for file in Files:
-                self.Gallery.append(file)
-    
-        numpy.random.seed()
+        # # sample Gallery
+        # self.Gallery = []
+        # numpy.random.seed(2019)
+        # for classes in range(len(self.unData.keys())):
+        #     Files = np.random.choice(self.unData[list(self.unData.keys())[classes]], self.galleryNum, False)
+        #     for file in Files:
+        #         self.Gallery.append(file)
 
-        self.keyTobh = {}
-        for c in range(len(self.data.keys())):
-            self.keyTobh[list(self.data.keys())[c]] = c
+        # numpy.random.seed()
 
-        for c in range(len(self.unData.keys())):
-            self.keyTobh[list(self.unData.keys())[c]] = c
+        # self.keyTobh = {}
+        # for c in range(len(self.data.keys())):
+        #     self.keyTobh[list(self.data.keys())[c]] = c
 
-        #print(self.keyTobh)
-    def batchModel(model,AInputs,requireGrad):
-        Batch = (AInputs.size(0)+args.batchSize-1)//args.batchSize
-        First = True
-        Cfeatures = 1
+        # for c in range(len(self.unData.keys())):
+        #     self.keyTobh[list(self.unData.keys())[c]] = c
 
 
-        for b in range(Batch):
-            if b<Batch-1:
-                midFeature = model(Variable(AInputs[b*args.batchSize:(b+1)*args.batchSize].cuda(),requires_grad=requireGrad))
-            else:
-                midFeature = model(Variable(AInputs[b*args.batchSize:AInputs.size(0)].cuda(),requires_grad=requireGrad))
+    # def batchModel(model,AInputs,requireGrad):
+    #     Batch = (AInputs.size(0)+args.batchSize-1)//args.batchSize
+    #     First = True
+    #     Cfeatures = 1
 
-            if First:
-                First = False
-                Cfeatures = midFeature
-            else:
-                Cfeatures = torch.cat((Cfeatures,midFeature),dim=0)
 
-        return Cfeatures
+    #     for b in range(Batch):
+    #         if b<Batch-1:
+    #             midFeature = model(Variable(AInputs[b*args.batchSize:(b+1)*args.batchSize].cuda(),requires_grad=requireGrad))
+    #         else:
+    #             midFeature = model(Variable(AInputs[b*args.batchSize:AInputs.size(0)].cuda(),requires_grad=requireGrad))
 
-    def acquireFeature(self,model,batchSize=128):
+    #         if First:
+    #             First = False
+    #             Cfeatures = midFeature
+    #         else:
+    #             Cfeatures = torch.cat((Cfeatures,midFeature),dim=0)
 
-        Batch = (len(self.Gallery)+batchSize-1)//batchSize
-        First = True
-        Cfeatures = 1
-        Images = 1
+    #     return Cfeatures
 
-        for b in range(Batch):
+    # def acquireFeature(self,model,batchSize=128):
 
-            jFirst = True
-            Images = 1
-            for j in range(b*batchSize,min((b+1)*batchSize,len(self.Gallery))):
-                image = self.transform(self.Gallery[j])
-                image = image.unsqueeze(0)
-                if jFirst:
-                    jFirst=False
-                    Images = image
-                else:
-                    Images = torch.cat((Images,image),0)
+    #     Batch = (len(self.Gallery)+batchSize-1)//batchSize
+    #     First = True
+    #     Cfeatures = 1
+    #     Images = 1
 
-            with torch.no_grad():##
-                midFeature = model(Variable(Images.cuda(),requires_grad=False)).cpu()
+    #     for b in range(Batch):
+
+    #         jFirst = True
+    #         Images = 1
+    #         for j in range(b*batchSize,min((b+1)*batchSize,len(self.Gallery))):
+    #             image = self.transform(os.path.join(pathImages,str(self.Gallery[j])))
+    #             image = image.unsqueeze(0)
+    #             if jFirst:
+    #                 jFirst=False
+    #                 Images = image
+    #             else:
+    #                 Images = torch.cat((Images,image),0)
+
+    #         with torch.no_grad():##
+    #             midFeature = model(Variable(Images.cuda(),requires_grad=False)).cpu()
                
-                if First:
-                    First = False
-                    Cfeatures = midFeature
-                else:
-                    Cfeatures = torch.cat((Cfeatures,midFeature),dim=0)
+    #             if First:
+    #                 First = False
+    #                 Cfeatures = midFeature
+    #             else:
+    #                 Cfeatures = torch.cat((Cfeatures,midFeature),dim=0)
 
-        return Cfeatures
+    #     return Cfeatures
 
-    def get_image(self,img):
-        image = self.galleryTransform(img)
-        return image
+    # def get_image(self,file):
+    #     image = self.galleryTransform(os.path.join(pathImages,str(file)))
+    #     return image
+
 
     def __getitem__(self, index):
         # ways,shots,3,224,224
         #numpy.random.seed(index+datetime.datetime.now().second + datetime.datetime.now().microsecond)
+
+        _supportImages, _supportBelongs, _supportReal, \
+        _testImages, _testBelongs, _testReal, \
+        _unlblImages, _unlblBelongs, _unlblReal = self.ren_data.__getitem__()
+
+
         supportFirst = True
         supportImages = 1
-        supportBelongs = torch.LongTensor(self.ways*self.shots,1)
-        supportReal = torch.LongTensor(self.ways*self.shots,1)
+        supportBelongs = torch.from_numpy(_supportBelongs).view(-1, 1).to(torch.long)
+        supportReal = torch.from_numpy(_supportReal).view(-1, 1).to(torch.long)
 
         testFirst = True
         testImages = 1
-        testBelongs = torch.LongTensor(self.ways*self.test_num,1)
-        testReal = torch.LongTensor(self.ways*self.test_num,1)
+        testBelongs = torch.from_numpy(_testBelongs).view(-1, 1).to(torch.long)
+        testReal = torch.from_numpy(_testBelongs).view(-1, 1).to(torch.long)
 
-        selected_classes = np.random.choice(self.data.keys(), self.ways, False)
-        for i in range(self.ways):
-            files = np.random.choice(self.data[selected_classes[i]], self.shots, False)
-            for j in range(self.shots):
-                image = self.transform(os.path.join(pathImages,str(files[j])))
-                image = image.unsqueeze(0)
-                if supportFirst:
-                    supportFirst=False
-                    supportImages = image
-                else:
-                    supportImages = torch.cat((supportImages,image),0)
-                supportBelongs[i*self.shots+j,0] = i
-                supportReal[i*self.shots+j,0] = self.keyTobh[selected_classes[i]]
+        unlblFirst = True
+        unlblImages = 1
+        unlblBelongs = torch.from_numpy(_unlblBelongs).view(-1, 1).to(torch.long)
+        unlblReal = torch.from_numpy(_unlblBelongs).view(-1, 1).to(torch.long)
 
 
-            files = np.random.choice(self.data[selected_classes[i]], self.test_num, False)
-            for j in range(self.test_num):
-                image = self.transform(os.path.join(pathImages,str(files[j])))
-                image = image.unsqueeze(0)
-                if testFirst:
-                    testFirst = False
-                    testImages = image
-                else:
-                    testImages = torch.cat((testImages,image),0)
-                testBelongs[i*self.test_num+j,0] = i
-                testReal[i*self.test_num+j,0] = self.keyTobh[selected_classes[i]]
+        for i in range(_supportImages.shape[0]):
+            image = Image.fromarray(np.uint8(_supportImages[i]*255))
+            image = self.transform(image)
+            image = image.unsqueeze(0)
+            if supportFirst:
+                supportFirst=False
+                supportImages = image
+            else:
+                supportImages = torch.cat((supportImages,image),0)
 
 
-        return supportImages,supportBelongs,supportReal,testImages,testBelongs,testReal
+        for i in range(_testImages.shape[0]):
+            image = Image.fromarray(np.uint8(_testImages[i]*255))
+            image = self.transform(image)
+            image = image.unsqueeze(0)
+            if testFirst:
+                testFirst=False
+                testImages = image
+            else:
+                testImages = torch.cat((testImages,image),0)
+
+
+        for i in range(_unlblImages.shape[0]):
+            image = Image.fromarray(np.uint8(_unlblImages[i]*255))
+            image = self.transform(image)
+            image = image.unsqueeze(0)
+            if unlblFirst:
+                unlblFirst=False
+                unlblImages = image
+            else:
+                unlblImages = torch.cat((unlblImages,image),0)
+
+
+
+
+        return supportImages,supportBelongs,supportReal,testImages,testBelongs,testReal,unlblImages,unlblBelongs,unlblReal
+
+
+
+
+        # supportFirst = True
+        # supportImages = 1
+        # supportBelongs = torch.LongTensor(self.ways*self.shots,1)
+        # supportReal = torch.LongTensor(self.ways*self.shots,1)
+
+        # testFirst = True
+        # testImages = 1
+        # testBelongs = torch.LongTensor(self.ways*self.test_num,1)
+        # testReal = torch.LongTensor(self.ways*self.test_num,1)
+
+        # selected_classes = np.random.choice(self.data.keys(), self.ways, False)
+
+        # for i in range(self.ways):
+        #     files = np.random.choice(self.data[selected_classes[i]], self.shots, False)
+        #     for j in range(self.shots):
+        #         image = self.transform(os.path.join(pathImages,str(files[j])))
+        #         image = image.unsqueeze(0)
+        #         if supportFirst:
+        #             supportFirst=False
+        #             supportImages = image
+        #         else:
+        #             supportImages = torch.cat((supportImages,image),0)
+        #         supportBelongs[i*self.shots+j,0] = i
+        #         supportReal[i*self.shots+j,0] = self.keyTobh[selected_classes[i]]
+
+
+        #     files = np.random.choice(self.data[selected_classes[i]], self.test_num, False)
+        #     for j in range(self.test_num):
+        #         image = self.transform(os.path.join(pathImages,str(files[j])))
+        #         image = image.unsqueeze(0)
+        #         if testFirst:
+        #             testFirst = False
+        #             testImages = image
+        #         else:
+        #             testImages = torch.cat((testImages,image),0)
+        #         testBelongs[i*self.test_num+j,0] = i
+        #         testReal[i*self.test_num+j,0] = self.keyTobh[selected_classes[i]]
+
+
+
+
+
+
+        # return supportImages,supportBelongs,supportReal,testImages,testBelongs,testReal
 
     def __len__(self):
-        return self.__size  
+        return self.__size
+
+def worker_init_fn(worker_id):                                                          
+    np.random.seed(np.random.get_state()[1][0] + worker_id)
+
 # if __name__ == '__main__':
 #     dataTrain = torch.utils.data.DataLoader(miniImagenetOneshotDataset(type='train',ways=5,shots=5,test_num=15,epoch=1000),batch_size=1,shuffle=False,num_workers=2,worker_init_fn=worker_init_fn)
 
@@ -233,5 +292,3 @@ class miniImagenetOneshotDataset(data.Dataset):
 #             else:
 #                 break
         
-
-
