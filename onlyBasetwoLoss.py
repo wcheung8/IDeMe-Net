@@ -17,6 +17,7 @@ import torchvision
 # import matplotlib.pyplot as plt
 from option import Options
 from datasets import oneShotBaseCls
+from datasets import miniimagenet as mini
 
 args = Options().parse()
 from torch.optim import lr_scheduler
@@ -204,7 +205,7 @@ class GNet(nn.Module):
 
 
 
-def euclidean_dist(x, y):
+def euclidean_dist(x, y, model):
     # x: N x D
     # y: M x D
     n = x.size(0)
@@ -216,11 +217,11 @@ def euclidean_dist(x, y):
     y = y.unsqueeze(0).expand(n, m, d)
 
     # To accelerate training, but observe little effect
-    A = GNet.module.scale
+    A = model.module.scale
 
     return (torch.pow(x - y, 2)*A).sum(2)
 
-def iterateMix(supportImages,supportFeatures,supportBelongs,supportReals,ways, galleryFeature, args):
+def iterateMix(supportImages,supportFeatures,supportBelongs,supportReals,unlblImages,unlblFeatures,model,ways,args):
     '''
         Inputs:
             supportImages ways,shots,3,224,224
@@ -233,17 +234,22 @@ def iterateMix(supportImages,supportFeatures,supportBelongs,supportReals,ways, g
     center = supportFeatures.view(ways,args.shots,-1).mean(1)
 
     # dists = euclidean_dist(galleryFeature,center) # [ways*unNum,ways]
-    Num = galleryFeature.size(0)/10
+    Num = int(unlblFeatures.size(0)/10)
+    #print(Num)
     with torch.no_grad():
-        dists = euclidean_dist(galleryFeature[:Num].cuda(),center)
+        dists = euclidean_dist(unlblFeatures[:Num].cuda(),center, model)
         for i in range(1,10):
             _end = (i+1)*Num
             if i==9:
-                _end = galleryFeature.size(0)
-            dist = euclidean_dist(galleryFeature[i*Num:_end].cuda(),center)
+                _end = unlblFeatures.size(0)
+            dist = euclidean_dist(unlblFeatures[i*Num:_end].cuda(),center, model)
             dists = torch.cat((dists,dist),dim=0)
 
+
+    #print(dists.shape)
     dists = dists.transpose(1,0) # [ways,ways*unNum]
+    #print(dists.shape)
+
 
     AImages = torch.FloatTensor(ways*args.shots*(1+args.augnum),3,224,224)
     ABelongs = torch.LongTensor(ways*args.shots*(1+args.augnum),1)
@@ -273,10 +279,12 @@ def iterateMix(supportImages,supportFeatures,supportBelongs,supportReals,ways, g
                 Reals[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = supportReals[i*args.shots+j]
 
                 choose = np.random.randint(0,args.chooseNum)
-                BImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = image_datasets['test'].get_image(Gallery[bh[i][choose]])
+                #BImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = image_datasets['test'].get_image(Gallery[bh[i][choose]])
+                BImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = unlblImages[bh[i][choose]]
                 # BImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = unImages[bh[i][choose]]
                 
     return AImages,BImages,ABelongs,Reals
+
 
 def batchModel(model,AInputs,requireGrad):
     Batch = (AInputs.size(0)+args.batchSize-1)//args.batchSize
@@ -304,10 +312,14 @@ def train_model(model,num_epochs=25):
 
     args = Options().parse()
 
+    # To do 1: Change the directory below to the folder where you save miniImagenet pickle files
+    ren_data = {x: mini.MiniImagenet("/home/root/data/miniImagenet", x, nshot=1)
+              for x in ['train', 'val','test']}
+
     image_datasets = {}
 
-    image_datasets = {x: oneShotBaseCls.miniImagenetOneshotDataset(type=x,ways= (args.trainways if x=='train' else args.ways),shots=args.shots,test_num=args.test_num,epoch=args.epoch,galleryNum=args.galleryNum)
-                      for x in ['train', 'val','test']}
+    image_datasets = {x: oneShotBaseCls.miniImagenetOneshotDataset(ren_data=ren_data[x],type=x,ways= (args.trainways if x=='train' else args.ways),shots=args.shots,test_num=args.test_num,epoch=args.epoch,galleryNum=args.galleryNum)
+                  for x in ['train', 'val','test']}
 
 
     dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=1,
@@ -371,29 +383,53 @@ def train_model(model,num_epochs=25):
     #############################################
     #Define the optimizer
 
-    # if torch.cuda.device_count() > 1:
-    if args.scratch == 0:
-        optimizer_attention = torch.optim.Adam([
-                    {'params': model.attentionNet.parameters()},
-                    {'params': model.toWeight.parameters(), 'lr':  args.LR}
-                ], lr=args.LR) # 0.001
-        optimizer_classifier = torch.optim.Adam([
-                    {'params': model.CNet.parameters(),'lr': args.clsLR*0.1},
-                    {'params': model.fc.parameters(), 'lr':  args.clsLR}
-                ]) # 0.00003
-        optimizer_scale = torch.optim.Adam([
-                    {'params': model.scale}
-                ], lr=args.LR) # 0.001
+    if torch.cuda.device_count() > 1:
+        if args.scratch == 0:
+            optimizer_attention = torch.optim.Adam([
+                        {'params': model.module.attentionNet.parameters()},
+                        {'params': model.module.toWeight.parameters(), 'lr':  args.LR}
+                    ], lr=args.LR) # 0.001
+            optimizer_classifier = torch.optim.Adam([
+                        {'params': model.module.CNet.parameters(),'lr': args.clsLR*0.1},
+                        {'params': model.module.fc.parameters(), 'lr':  args.clsLR}
+                    ]) # 0.00003
+            optimizer_scale = torch.optim.Adam([
+                        {'params': model.module.scale}
+                    ], lr=args.LR) # 0.001
+        else:
+            optimizer_attention = torch.optim.Adam([
+                        {'params': model.module.ANet.parameters()},
+                        {'params': model.module.BNet.parameters()},
+                        {'params': model.module.toWeight.parameters()}
+                    ], lr=args.LR)
+            optimizer_classifier = torch.optim.Adam([
+                        {'params': model.module.CNet.parameters()},
+                        {'params': model.module.fc.parameters()}
+                    ], lr=args.LR)
+
     else:
-        optimizer_attention = torch.optim.Adam([
-                    {'params': model.ANet.parameters()},
-                    {'params': model.BNet.parameters()},
-                    {'params': model.toWeight.parameters()}
-                ], lr=args.LR)
-        optimizer_classifier = torch.optim.Adam([
-                    {'params': model.CNet.parameters()},
-                    {'params': model .fc.parameters()}
-                ], lr=args.LR)
+        if args.scratch == 0:
+            optimizer_attention = torch.optim.Adam([
+                        {'params': model.attentionNet.parameters()},
+                        {'params': model.toWeight.parameters(), 'lr':  args.LR}
+                    ], lr=args.LR) # 0.001
+            optimizer_classifier = torch.optim.Adam([
+                        {'params': model.CNet.parameters(),'lr': args.clsLR*0.1},
+                        {'params': model.fc.parameters(), 'lr':  args.clsLR}
+                    ]) # 0.00003
+            optimizer_scale = torch.optim.Adam([
+                        {'params': model.scale}
+                    ], lr=args.LR) # 0.001
+        else:
+            optimizer_attention = torch.optim.Adam([
+                        {'params': model.ANet.parameters()},
+                        {'params': model.BNet.parameters()},
+                        {'params': model.toWeight.parameters()}
+                    ], lr=args.LR)
+            optimizer_classifier = torch.optim.Adam([
+                        {'params': model.CNet.parameters()},
+                        {'params': model .fc.parameters()}
+                    ], lr=args.LR)
     # else:
         # optimizer_GNet = torch.optim.Adam([
                     # {'params': base_params},
@@ -409,11 +445,11 @@ def train_model(model,num_epochs=25):
     # ^^^^^^^^^^^^^^^^^^
 
     # Gallery 
-    Gallery = image_datasets['test'].Gallery
-    galleryFeature = image_datasets['test'].acquireFeature(model,args.batchSize).cpu()
+    # Gallery = image_datasets['test'].Gallery
+    # galleryFeature = image_datasets['test'].acquireFeature(model,args.batchSize).cpu()
 
-    print(type(galleryFeature))
-    print('Gallery size: ',galleryFeature.size())
+    # print(type(galleryFeature))
+    # print('Gallery size: ',galleryFeature.size())
 
     for epoch in range(num_epochs):
         print('Epoch {}/{}'.format(epoch, num_epochs - 1))
@@ -423,6 +459,7 @@ def train_model(model,num_epochs=25):
 
         for phase in [ 'test','train']: ####@@@
         # for phase in [ 'test']: ###
+            print('phase {}'.format(phase))
 
             if phase == 'train':
                 Attention_lr_scheduler.step()
@@ -444,7 +481,7 @@ def train_model(model,num_epochs=25):
 
             np.random.seed()
 
-            for i,(supportInputs,supportLabels,supportReals,testInputs,testLabels,testReals) in tqdm(enumerate(dataloaders[phase])):
+            for i,(supportInputs,supportLabels,supportReals,testInputs,testLabels,testReals,unlblInputs,unlblLabels,unlblReals) in tqdm(enumerate(dataloaders[phase])):
 
                 if epoch == 0 and i>4000:
                     break
@@ -458,13 +495,26 @@ def train_model(model,num_epochs=25):
                 testInputs = testInputs.squeeze(0)
                 testLabels = testLabels.squeeze(0).cuda()
 
-                ways = supportInputs.size(0)/args.shots
+                unlblInputs = unlblInputs.squeeze(0)
+                unlblLabels = unlblLabels.squeeze(0)
+                unlblReals = unlblReals.squeeze(0)
+
+                ways = int(supportInputs.size(0)/args.shots)
 
                 supportFeatures = batchModel(model,supportInputs,requireGrad=False)
                 testFeatures = batchModel(model,testInputs,requireGrad=True)
+                unlblFeatures = batchModel(model,unlblInputs,requireGrad=False)
 
-                AInputs, BInputs, ABLabels, ABReals = iterateMix(supportInputs,supportFeatures,supportLabels,supportReals,ways=ways, galleryFeature=galleryFeature, args=args)
-                
+
+                AInputs, BInputs, ABLabels, ABReals = iterateMix(supportInputs,\
+                                                                supportFeatures,\
+                                                                supportLabels,\
+                                                                supportReals,\
+                                                                unlblInputs, \
+                                                                unlblFeatures, \
+                                                                model=model, \
+                                                                ways=ways, \
+                                                                args=args)
 
                 Batch = (AInputs.size(0)+args.batchSize-1)//args.batchSize
 
@@ -514,7 +564,7 @@ def train_model(model,num_epochs=25):
                     allWeight[str(k)] = allWeight[str(k)] + Weights[k].view(-1).tolist()
 
                 center = Cfeatures.view(ways,args.shots*(1+args.augnum),-1).mean(1) # [ways,512]
-                dists = euclidean_dist(testFeatures,center) # [ways*test_num,ways]
+                dists = euclidean_dist(testFeatures,center,model) # [ways*test_num,ways]
 
                 log_p_y = F.log_softmax(-dists,dim=1).view(ways, args.test_num, -1) # [ways,test_num,ways]
 
@@ -612,7 +662,7 @@ def run():
     # if torch.cuda.device_count() > 1:
         # print("Let's use", torch.cuda.device_count(), "GPUs!")
         # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
-    # GNet = nn.DataParallel(GNet)
+    model = nn.DataParallel(model)
 
     model = model.cuda()
 
