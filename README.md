@@ -1,9 +1,9 @@
 # Image Deformation Meta-Networks for One-Shot Learning
 
 ### Things to change before running:
-0. miniimagenet.py - comment "To do 1: Change the paths below to the train/val/test csv files respectively."
+0. datasets/miniimagenet.py - comment "To do 1: Change the paths below to the train/val/test csv files respectively."
 
-1. classification.py - comment "To do 1: Change the directory below to the folder where you save miniImagenet pickle files"
+1. datasets/classification.py - comment "To do 1: Change the directory below to the folder where you save miniImagenet pickle files"
 
 2. onlyBasetwoLoss.py - comment "To do 1: Change the directory below to the folder where you save miniImagenet pickle files"
 
