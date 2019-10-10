@@ -34,19 +34,26 @@ for i in range(Fang):
         patch_yr.append(point[j+1])
 
 class miniImagenetEmbeddingDataset(data.Dataset):
-    def __init__(self, dataroot = '/home/'+userName+'/data/miniImagenet', type = 'train'):
+    def __init__(self, ren_data, dataroot = '/home/'+userName+'/data/miniImagenet', type = 'train'):
+        self.labeled_images = ren_data[0]
+        self.labeled_labels = ren_data[1]
+        self.labeled_real = ren_data[2]
+
         if type == 'specialtest':
             type = 'test'
         # Transformations to the image
         if type=='train':
-            self.transform = transforms.Compose([filenameToPILImage,
+            self.transform = transforms.Compose([
+                                                #filenameToPILImage,
+                                                transforms.Resize(256),
                                                 transforms.RandomResizedCrop(224),
                                                 transforms.RandomHorizontalFlip(),
                                                 transforms.ToTensor(),
                                                 transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
                                                 ])
         else:
-            self.transform = transforms.Compose([filenameToPILImage,
+            self.transform = transforms.Compose([
+                                                #filenameToPILImage,
                                                 transforms.Resize(256),
                                                 transforms.CenterCrop(224),
                                                 transforms.ToTensor(),
@@ -62,7 +69,7 @@ class miniImagenetEmbeddingDataset(data.Dataset):
                     filename = row[0]
                     label = row[1]
 
-                    if label in dictLabels.keys():
+                    if label in list(dictLabels.keys()):
                         dictLabels[label].append(filename)
                     else:
                         dictLabels[label] = [filename]
@@ -74,15 +81,15 @@ class miniImagenetEmbeddingDataset(data.Dataset):
 
         self.type = type
         self.data = collections.OrderedDict(sorted(self.data.items()))
-        self.classes_dict = {self.data.keys()[i]:i  for i in range(len(self.data.keys()))} # map NLabel to id(0-99)
-        self.bhToClass = {i:self.data.keys()[i]  for i in range(len(self.data.keys()))}
+        self.classes_dict = {list(self.data.keys())[i]:i  for i in range(len(list(self.data.keys())))} # map NLabel to id(0-99)
+        self.bhToClass = {i:list(self.data.keys())[i]  for i in range(len(list(self.data.keys())))}
 
         self.Files = []
         self.belong = []
 
-        for c in range(len(self.data.keys())):
-            self.data[self.data.keys()[c]] = self.data[self.data.keys()[c]][:500]
-            for file in self.data[self.data.keys()[c]]:
+        for c in range(len(list(self.data.keys()))):
+            self.data[list(self.data.keys())[c]] = self.data[list(self.data.keys())[c]][:500]
+            for file in self.data[list(self.data.keys())[c]]:
                 self.Files.append(file)
                 self.belong.append(c)
         
@@ -90,28 +97,40 @@ class miniImagenetEmbeddingDataset(data.Dataset):
         self.belong = self.belong + self.belong
         self.__size = len(self.Files)
 
-        print(type,self.__size,len(self.data.keys()))
+        print(type,self.__size,len(list(self.data.keys())))
 
     def __getitem__(self, index):
 
-        c = self.belong[index]
-        File = self.Files[index]
 
-        path = os.path.join(pathImages,str(File))
-        images = self.transform(path)
+        c = self.labeled_real[index]
+        
+
+        # File = self.Files[index]
+        # path = os.path.join(pathImages,str(File))
+
+        images = Image.fromarray(np.uint8(self.labeled_images[index]*255))
+        images = self.transform(images)
 
         p = np.random.randint(0,3)
         if p<2:
+
+
+            idx_same_c = np.where(self.labeled_real==c)[0]
+            idx_Bimages = np.random.choice(idx_same_c, 1, False).item()
+
+
+            Bimages = Image.fromarray(np.uint8(self.labeled_images[idx_Bimages]*255))
+            Bimages = self.transform(Bimages)
+
+
             # if p==0:
             #     BFile = self.Files[np.random.randint(0,len(self.Files))]
             # else:
-            className = self.bhToClass[c]
-            BFile = self.data[className][np.random.randint(0,len(self.data[className]))]
+            # className = self.bhToClass[c]
+            # BFile = self.data[className][np.random.randint(0,len(self.data[className]))]
 
 
-            
-
-            Bimages = self.transform(os.path.join(pathImages,str(BFile)))
+            # Bimages = self.transform(os.path.join(pathImages,str(BFile)))
 
             for k in range(Fang*Fang):
                 weight = np.random.uniform(0,1)
@@ -120,7 +139,8 @@ class miniImagenetEmbeddingDataset(data.Dataset):
         return images,torch.LongTensor([c])
 
     def __len__(self):
-        return self.__size
+        # return self.__size
+        return self.labeled_images.shape[0]
 
 # ######################################################################
 # #plot related
