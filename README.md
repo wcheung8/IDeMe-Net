@@ -1,5 +1,19 @@
 # Image Deformation Meta-Networks for One-Shot Learning
 
+### Things to change before running:
+0. datasets/miniimagenet.py - comment "To do 1: Change the paths below to the train/val/test csv files respectively."
+
+1. datasets/classification.py - comment "To do 1: Change the directory below to the folder where you save miniImagenet pickle files"
+
+2. onlyBasetwoLoss.py - comment "To do 1: Change the directory below to the folder where you save miniImagenet pickle files"
+
+
+
+<br>
+    
+    
+    
+
 A PyTorch implementation of "Image Deformation Meta-Networks for One-Shot Learning"(CVPR 2019 Oral).
 
 > [**Image Deformation Meta-Networks for One-Shot Learning**](<https://arxiv.org/abs/1905.11641>),            
@@ -20,8 +34,8 @@ A PyTorch implementation of "Image Deformation Meta-Networks for One-Shot Learni
 ## Installation
 
 ```
-python=2.7
-pytorch=0.4.0
+python=3.6
+pytorch=1.2
 ```
 
 ## Datasets
