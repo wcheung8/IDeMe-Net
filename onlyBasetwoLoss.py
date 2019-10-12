@@ -18,11 +18,38 @@ import torchvision
 from option import Options
 from datasets import oneShotBaseCls
 from datasets import miniimagenet as mini
+from pathlib import Path
+import logging
+import datetime as dt
+import sys
 
 args = Options().parse()
 from torch.optim import lr_scheduler
 import copy
 import time
+
+## logging
+def get_logger(name, log_dir="log/"):
+    log_path = Path(log_dir)
+    path = log_path
+    path.mkdir(exist_ok=True, parents=True)
+
+    logger = logging.getLogger("Main")
+    logger.setLevel(logging.INFO)
+
+    fh = logging.FileHandler(
+        path / (dt.datetime.now().strftime("%Y-%m-%d-%H-%M-%S") + "-" + name + ".log"))
+    sh = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter(
+        "%(asctime)s %(name)s %(levelname)s %(message)s")
+
+    fh.setFormatter(formatter)
+    sh.setFormatter(formatter)
+    logger.addHandler(fh)
+    logger.addHandler(sh)
+    return logger
+
+
 class Denormalize(object):
     def __init__(self, mean, std):
         self.mean = mean
@@ -306,7 +333,7 @@ def batchModel(model,AInputs,requireGrad):
 
     return Cfeatures
 
-def train_model(model,num_epochs=25):
+def train_model(model, logger, num_epochs=25):
     
     rootdir = os.getcwd()
 
@@ -610,12 +637,21 @@ def train_model(model,num_epochs=25):
             epoch_cls_accuracy = running_cls_accuracy / (Times*1.0)
 
 
-            info = {
-                phase+'loss': epoch_loss,
-                phase+'accuracy': epoch_accuracy,
-                phase+'_cls_loss': epoch_cls_loss,
-                phase+'_cls_accuracy': epoch_cls_accuracy,
-            }
+            # info = {
+            #     phase+'loss': epoch_loss,
+            #     phase+'accuracy': epoch_accuracy,
+            #     phase+'_cls_loss': epoch_cls_loss,
+            #     phase+'_cls_accuracy': epoch_cls_accuracy,
+            # }
+
+            # Logging
+            logger.info("=========================================")
+            logger.info(f"Epoch {epoch}, Phase {phase}")
+            logger.info("=========================================")
+            logger.info(f"loss: {epoch_loss:.4f};")
+            logger.info(f"accuracy: {epoch_accuracy:.4f};")
+            logger.info(f"_cls_loss: {epoch_cls_loss:.4f};")
+            logger.info(f"_cls_accuracy: {epoch_cls_accuracy:.4f};")
 
             #for tag, value in info.items():
             #    logger.scalar_summary(tag, value, epoch+1)
@@ -656,6 +692,7 @@ def train_model(model,num_epochs=25):
 # .. to load your previously training model:
 #model.load_state_dict(torch.load('mytraining.pt'))
 def run():
+    logger = get_logger(name=args.name_log)
     model = GNet()
 
 
@@ -671,7 +708,7 @@ def run():
 
     model = model.cuda()
 
-    model = train_model(model, num_epochs=120)
+    model = train_model(model, logger=logger, num_epochs=120)
     ##
 
     # ... after training, save your model 

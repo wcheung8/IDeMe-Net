@@ -52,6 +52,8 @@ class Options():
                             help='number of choosing')
         parser.add_argument('--num_unlabel', default=5,type=int,
                             help='number of unlabeled images per class')
+        parser.add_argument('--name_log', default='',type=str,
+                            help='name of the log file')
 
         self.parser = parser
 
