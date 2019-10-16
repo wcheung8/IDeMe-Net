@@ -54,6 +54,11 @@ class miniImagenetOneshotDataset(data.Dataset):
                                             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
                                             ])
 
+
+
+
+        
+
         # def loadSplit(splitFile):
         #     dictLabels = {}
         #     with open(splitFile) as csvfile:

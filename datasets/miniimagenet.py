@@ -147,7 +147,8 @@ class MiniImagenet(Dataset):
         total_test = None
         total_unlbl = None
 
-        for idx, cl in enumerate(range(len(self.class_dict.keys()))):
+        # for idx, cl in enumerate(range(len(self.class_dict.keys()))):
+        for idx, cl in enumerate(sel_classes):
             train, test, unlbl = self._get_rand_partition(list(self.class_dict.keys())[cl], idx, k_per_class[idx])
             total_train = self._concat_or_identity(total_train, train)
             total_test = self._concat_or_identity(total_test, test)
