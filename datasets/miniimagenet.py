@@ -9,9 +9,9 @@ N_INPUT = 84
 IMAGES_PATH = "images/"
 # To do 1: Change the paths below to the train/val/test csv files respectively.
 CSV_FILES = {
-    'train': '/home/root/data/miniImagenet/train.csv',
-    'val': '/home/root/data/miniImagenet/val.csv',
-    'test': '/home/root/data/miniImagenet/test.csv'
+    'train': 'datasplit/train.csv',
+    'val': 'datasplit/val.csv',
+    'test': 'datasplit/test.csv'
 }
 FIXED_SEED = 22
 
