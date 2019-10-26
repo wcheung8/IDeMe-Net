@@ -18,7 +18,9 @@ python onlyBasetwoLoss.py --network pretrainedClassifier --shots 5 --augnum 5 --
 # For 84x84
 python onlyBasetwoLoss_84.py --network pretrainedClassifier --shots 5 --augnum 5 --fixCls 1 --tensorname metaNet_5shot --chooseNum 30 
 
+########################################
 #(command below has not been tested yet.)
+########################################
 # If you want to further improve, then fix one sub-network and iteratively train the other. 
 
 # update cls
