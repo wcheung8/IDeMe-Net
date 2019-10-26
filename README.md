@@ -3,7 +3,7 @@
 A PyTorch implementation of "Image Deformation Meta-Networks for One-Shot Learning"(CVPR 2019 Oral).
 
 ```
-Please put the data in:
+Please first put the data in:
 /home/yourusername/data/miniImagenet
 
 The images are put in 
@@ -14,7 +14,10 @@ We provide the data split in ./datasplit/,please put them at
 .../miniImagenet/test.csv
 .../miniImagenet/val.csv
 
-# First, we fix the deformation sub-network and train the embedding sub-network with randomly deformed images
+
+
+
+# For the first step, we fix the deformation sub-network and train the embedding sub-network with randomly deformed images
 
 # For 224x224
 # run python classification.py --tensorname yournetworkname
