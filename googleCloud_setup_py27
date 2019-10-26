@@ -1,0 +1,87 @@
+sudo -s
+
+# delete existing conda
+cd /usr/bin
+rm -rf ./conda
+
+# install new conda
+cd /home
+wget https://repo.anaconda.com/archive/Anaconda3-2019.07-Linux-x86_64.sh
+bash Anaconda3-2019.07-Linux-x86_64.sh
+cd ~
+source .bashrc
+
+# install new environment and required packages
+conda create -n cs8803ls_deform python=2.7
+
+source activate cs8803ls_deform
+conda update pip
+pip install numpy
+pip install torch==1.0
+pip install torchvision==0.2.0
+pip install tqdm
+pip install matplotlib
+pip install gdown
+pip install tensorflow
+pip install scipy
+pip install opencv-python
+
+# to use jupyter notebook
+conda install jupyter
+conda install nb_conda_kernels
+pip install nbdime
+pip install jupyterlab
+
+
+# download image net data
+cd /home
+mkdir root
+cd root
+
+mkdir data
+cd data
+mkdir miniImagenet
+cd miniImagenet
+mkdir images
+
+# # download jpg files
+gdown https://drive.google.com/uc?id=1tnqTbQkaNlnYXbaeKBLNX-lv-G5iDsbk
+gdown https://drive.google.com/uc?id=1nYh4RehxKnv_AQeMp6NlLpztNnmvjZ1K
+gdown https://drive.google.com/uc?id=1dKjmbNOe4tNdHsrDZMnF1ArI7za8XLbn
+
+tar -xvf train.tar
+tar -xvf val.tar
+tar -xvf test.tar
+
+cd train
+find . -type f -exec mv --backup=numbered {} . \;
+cd ..
+mv train/*.jpg images
+
+cd val
+find . -type f -exec mv --backup=numbered {} . \;
+cd ..
+mv val/*.jpg images
+
+cd test
+find . -type f -exec mv --backup=numbered {} . \;
+cd ..
+mv test/*.jpg images
+
+
+# download code
+mkdir repos
+cd repos
+
+# download pickle files
+#gdown https://drive.google.com/uc?id=1I3itTXpXxGV68olxM5roceUMG8itH9Xj
+#gdown https://drive.google.com/uc?id=1KY5e491bkLFqJDp0-UWou3463Mo8AOco
+#gdown https://drive.google.com/uc?id=1wpmY-hmiJUUlRBkO9ZDCXAcIpHEFdOhD
+
+
+# download code
+cd /home/root
+git clone -b vanila_testbed https://github.com/wcheung8/IDeMe-Net.git
+# move data split files to the specified directory
+cd IDeMe-Net
+mv datasplit/* /home/root/data/miniImagenet
