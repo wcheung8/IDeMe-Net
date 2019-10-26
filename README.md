@@ -3,6 +3,8 @@
 A PyTorch implementation of "Image Deformation Meta-Networks for One-Shot Learning"(CVPR 2019 Oral).
 
 ```
+If using google cloud, please follow googleCloud_setup_py27.txt to set up your environment
+
 Please first put the data in:
 /home/yourusername/data/miniImagenet
 
