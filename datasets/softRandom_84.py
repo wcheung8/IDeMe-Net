@@ -24,7 +24,8 @@ patch_xl = []
 patch_xr = []
 patch_yl = []
 patch_yr = []
-point = [0,74,148,224]
+# point = [0,74,148,224]
+point = [0,28,56,84]
 
 for i in range(Fang):
     for j in range(Fang):
@@ -39,19 +40,40 @@ class miniImagenetEmbeddingDataset(data.Dataset):
             type = 'test'
         # Transformations to the image
         if type=='train':
-            self.transform = transforms.Compose([filenameToPILImage,
-                                                transforms.RandomResizedCrop(224),
-                                                transforms.RandomHorizontalFlip(),
-                                                transforms.ToTensor(),
-                                                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-                                                ])
+            # self.transform = transforms.Compose([filenameToPILImage,
+            #                                     transforms.RandomResizedCrop(224),
+            #                                     transforms.RandomHorizontalFlip(),
+            #                                     transforms.ToTensor(),
+            #                                     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+            #                                     ])
+
+            self.transform = transforms.Compose([
+            filenameToPILImage,
+            transforms.Resize(84),
+            transforms.CenterCrop(84),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])
+                                ])
+
         else:
-            self.transform = transforms.Compose([filenameToPILImage,
-                                                transforms.Resize(256),
-                                                transforms.CenterCrop(224),
-                                                transforms.ToTensor(),
-                                                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-                                                ])
+            # self.transform = transforms.Compose([filenameToPILImage,
+            #                                     transforms.Resize(256),
+            #                                     transforms.CenterCrop(224),
+            #                                     transforms.ToTensor(),
+            #                                     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            #                                     ])
+
+            self.transform = transforms.Compose([
+            filenameToPILImage,
+            transforms.Resize(84),
+            transforms.CenterCrop(84),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])
+                                ])
+
 
         def loadSplit(splitFile):
             dictLabels = {}
@@ -178,3 +200,4 @@ class miniImagenetEmbeddingDataset(data.Dataset):
 #     plotPicture(C,'origin')
 #     C = torch.flip(C,[2])
 #     plotPicture(C,'flip')
+
