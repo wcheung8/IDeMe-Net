@@ -16,12 +16,13 @@ import torchvision.models as models
 import torchvision
 # import matplotlib.pyplot as plt
 from option import Options
-from datasets import oneShotBaseCls
+from datasets import oneShotBaseCls_84 as oneShotBaseCls
 
 args = Options().parse()
 from torch.optim import lr_scheduler
 import copy
 import time
+import math
 class Denormalize(object):
     def __init__(self, mean, std):
         self.mean = mean
@@ -58,89 +59,200 @@ class Flatten(nn.Module):
 
     def forward(self, x):
         return x.view(x.size(0), -1)
+
+
+def init_layer(L):
+    # Initialization using fan-in
+    if isinstance(L, nn.Conv2d):
+        n = L.kernel_size[0]*L.kernel_size[1]*L.out_channels
+        L.weight.data.normal_(0,math.sqrt(2.0/float(n)))
+    elif isinstance(L, nn.BatchNorm2d):
+        L.weight.data.fill_(1)
+        L.bias.data.fill_(0)
+
+
+# Simple Conv Block
+class ConvBlock(nn.Module):
+    maml = False #Default
+    def __init__(self, indim, outdim, pool = True, padding = 1):
+        super(ConvBlock, self).__init__()
+        self.indim  = indim
+        self.outdim = outdim
+        if self.maml:
+            self.C      = Conv2d_fw(indim, outdim, 3, padding = padding)
+            self.BN     = BatchNorm2d_fw(outdim)
+        else:
+            self.C      = nn.Conv2d(indim, outdim, 3, padding= padding)
+            self.BN     = nn.BatchNorm2d(outdim)
+        self.relu   = nn.ReLU(inplace=True)
+
+        self.parametrized_layers = [self.C, self.BN, self.relu]
+        if pool:
+            self.pool   = nn.MaxPool2d(2)
+            self.parametrized_layers.append(self.pool)
+
+        for layer in self.parametrized_layers:
+            init_layer(layer)
+
+        self.trunk = nn.Sequential(*self.parametrized_layers)
+
+
+    def forward(self,x):
+        out = self.trunk(x)
+        return out
+
+
+class ConvNet(nn.Module):
+    def __init__(self, depth, flatten = True):
+        super(ConvNet,self).__init__()
+        trunk = []
+        for i in range(depth):
+            indim = 3 if i == 0 else 64
+            outdim = 64
+            B = ConvBlock(indim, outdim, pool = ( i <4 ) ) #only pooling for fist 4 layers
+            trunk.append(B)
+
+        if flatten:
+            trunk.append(Flatten())
+
+        self.trunk = nn.Sequential(*trunk)
+        self.final_feat_dim = 1600
+
+    def forward(self,x):
+        out = self.trunk(x)
+        return out
+
+def Conv4():
+    return ConvNet(4)
+
+
+def Conv6():
+    return ConvNet(6)
+
+
+def weightNet():
+    return ConvNet(6)
+##############################
+
+
+# class ClassificationNetwork(nn.Module):
+#     def __init__(self):
+#         super(ClassificationNetwork, self).__init__()
+#         self.convnet = torchvision.models.resnet18(pretrained=False)
+#         num_ftrs = self.convnet.fc.in_features
+#         self.convnet.fc = nn.Linear(num_ftrs,64)
+#         #print(self.convnet)
+
+#     def forward(self,inputs):
+#         outputs = self.convnet(inputs)
+        
+#         return outputs
+
 class ClassificationNetwork(nn.Module):
     def __init__(self):
         super(ClassificationNetwork, self).__init__()
-        self.convnet = torchvision.models.resnet18(pretrained=False)
-        num_ftrs = self.convnet.fc.in_features
+        self.convnet = Conv6()
+        num_ftrs = self.convnet.final_feat_dim
         self.convnet.fc = nn.Linear(num_ftrs,64)
-        #print(self.convnet)
 
     def forward(self,inputs):
         outputs = self.convnet(inputs)
+        #outputs = self.fc(outputs)
         
         return outputs
 
 # resnet18 without fc layer
-class weightNet(nn.Module):
-    def __init__(self):
-        super(weightNet, self).__init__()
-        self.resnet = ClassificationNetwork()
-        self.resnet.load_state_dict(torch.load('models/'+str(args.network)+'.t7', map_location=lambda storage, loc: storage))
-        print('loading ',str(args.network))
+# class weightNet(nn.Module):
+#     def __init__(self):
+#         super(weightNet, self).__init__()
+#         self.resnet = ClassificationNetwork()
+#         self.resnet.load_state_dict(torch.load('models/'+str(args.network)+'.t7', map_location=lambda storage, loc: storage))
+#         print('loading ',str(args.network))
 
-        self.conv1 = self.resnet.convnet.conv1
-        self.conv1.load_state_dict(self.resnet.convnet.conv1.state_dict())
-        self.bn1 = self.resnet.convnet.bn1
-        self.bn1.load_state_dict(self.resnet.convnet.bn1.state_dict())
-        self.relu = self.resnet.convnet.relu
-        self.maxpool = self.resnet.convnet.maxpool
-        self.layer1 = self.resnet.convnet.layer1
-        self.layer1.load_state_dict(self.resnet.convnet.layer1.state_dict())
-        self.layer2 = self.resnet.convnet.layer2
-        self.layer2.load_state_dict(self.resnet.convnet.layer2.state_dict())
-        self.layer3 = self.resnet.convnet.layer3
-        self.layer3.load_state_dict(self.resnet.convnet.layer3.state_dict())
-        self.layer4 = self.resnet.convnet.layer4
-        self.layer4.load_state_dict(self.resnet.convnet.layer4.state_dict())
-        self.layer4 = self.resnet.convnet.layer4
-        self.layer4.load_state_dict(self.resnet.convnet.layer4.state_dict())
-        self.avgpool = self.resnet.convnet.avgpool
+#         self.conv1 = self.resnet.convnet.conv1
+#         self.conv1.load_state_dict(self.resnet.convnet.conv1.state_dict())
+#         self.bn1 = self.resnet.convnet.bn1
+#         self.bn1.load_state_dict(self.resnet.convnet.bn1.state_dict())
+#         self.relu = self.resnet.convnet.relu
+#         self.maxpool = self.resnet.convnet.maxpool
+#         self.layer1 = self.resnet.convnet.layer1
+#         self.layer1.load_state_dict(self.resnet.convnet.layer1.state_dict())
+#         self.layer2 = self.resnet.convnet.layer2
+#         self.layer2.load_state_dict(self.resnet.convnet.layer2.state_dict())
+#         self.layer3 = self.resnet.convnet.layer3
+#         self.layer3.load_state_dict(self.resnet.convnet.layer3.state_dict())
+#         self.layer4 = self.resnet.convnet.layer4
+#         self.layer4.load_state_dict(self.resnet.convnet.layer4.state_dict())
+#         self.layer4 = self.resnet.convnet.layer4
+#         self.layer4.load_state_dict(self.resnet.convnet.layer4.state_dict())
+#         self.avgpool = self.resnet.convnet.avgpool
 
-    def forward(self,x):
+#     def forward(self,x):
 
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
-        layer1 = self.layer1(x) # (, 64L, 56L, 56L)
-        layer2 = self.layer2(layer1) # (, 128L, 28L, 28L)
-        layer3 = self.layer3(layer2) # (, 256L, 14L, 14L)
-        layer4 = self.layer4(layer3) # (,512,7,7)
-        x = self.avgpool(layer4) # (,512,1,1)
-        x = x.view(x.size(0), -1)
-        return x
+#         x = self.conv1(x)
+#         x = self.bn1(x)
+#         x = self.relu(x)
+#         x = self.maxpool(x)
+#         layer1 = self.layer1(x) # (, 64L, 56L, 56L)
+#         layer2 = self.layer2(layer1) # (, 128L, 28L, 28L)
+#         layer3 = self.layer3(layer2) # (, 256L, 14L, 14L)
+#         layer4 = self.layer4(layer3) # (,512,7,7)
+#         x = self.avgpool(layer4) # (,512,1,1)
+#         x = x.view(x.size(0), -1)
+#         return x
+
 
 class smallNet(nn.Module):
-    def __init__(self):
-        super(smallNet, self).__init__()
-        def conv_block(in_channels, out_channels):
-            return nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, 3, padding=1),
-                nn.BatchNorm2d(out_channels),
-                nn.ReLU(),
-                nn.MaxPool2d(2)
-            )
+    def __init__(self, flatten = True):
+        super(smallNet,self).__init__()
+        trunk = []
+        for i in range(6):
+            indim = 6 if i == 0 else 64
+            outdim = 64
+            B = ConvBlock(indim, outdim, pool = ( i <4 ) ) #only pooling for fist 4 layers
+            trunk.append(B)
 
-        self.encoder = nn.Sequential( # 6*224*224
-            conv_block(6, 32), # 64*112*112
-            conv_block(32, 64), # 64*56*56
-            conv_block(64, 64), # 64*28*28
-            conv_block(64, 32), # 64*14*14
-            conv_block(32, 16), # 32*7*7
-            Flatten() # 784
-        )
-        print(self.encoder)
+        if flatten:
+            trunk.append(Flatten())
 
-    def forward(self,inputs):
+        self.trunk = nn.Sequential(*trunk)
+        self.final_feat_dim = 1600
 
-        """                 
-        inputs: Batchsize*3*224*224
-        outputs: Batchsize*100
-        """
-        outputs = self.encoder(inputs)
+    def forward(self,x):
+        out = self.trunk(x)
+        return out
+
+
+# class smallNet(nn.Module):
+#     def __init__(self):
+#         super(smallNet, self).__init__()
+#         def conv_block(in_channels, out_channels):
+#             return nn.Sequential(
+#                 nn.Conv2d(in_channels, out_channels, 3, padding=1),
+#                 nn.BatchNorm2d(out_channels),
+#                 nn.ReLU(),
+#                 nn.MaxPool2d(2)
+#             )
+
+#         self.encoder = nn.Sequential( # 6*224*224
+#             conv_block(6, 32), # 64*112*112
+#             conv_block(32, 64), # 64*56*56
+#             conv_block(64, 64), # 64*28*28
+#             conv_block(64, 32), # 64*14*14
+#             conv_block(32, 16), # 32*7*7
+#             Flatten() # 784
+#         )
+#         print(self.encoder)
+
+#     def forward(self,inputs):
+
+#         """                 
+#         inputs: Batchsize*3*224*224
+#         outputs: Batchsize*100
+#         """
+#         outputs = self.encoder(inputs)
         
-        return outputs
+#         return outputs
 
 
 class GNet(nn.Module):
@@ -157,7 +269,7 @@ class GNet(nn.Module):
         self.attentionNet = smallNet()
 
         self.toWeight = nn.Sequential(
-                nn.Linear(784,args.Fang*args.Fang),
+                nn.Linear(1600,args.Fang*args.Fang),
                 # nn.ReLU(),
                 # nn.Linear(100,args.Fang*args.Fang),
                 # nn.Linear(1024,9),
@@ -166,12 +278,16 @@ class GNet(nn.Module):
             )
 
         self.CNet = weightNet()
-        self.fc = nn.Linear(512,64)
+        self.fc = nn.Linear(1600,64)
 
-        resnet = ClassificationNetwork()
-        resnet.load_state_dict(torch.load('models/'+str(args.network)+'.t7', map_location=lambda storage, loc: storage))
 
-        self.fc.load_state_dict(resnet.convnet.fc.state_dict())
+        if str(args.network) != 'None':
+            print('loading ',str(args.network))
+            conv6 = ClassificationNetwork()
+            conv6.load_state_dict(torch.load('models/'+str(args.network)+'.t7', map_location=lambda storage, loc: storage))
+            self.CNet.trunk.load_state_dict(conv6.convnet.trunk.state_dict())
+            # self.fc.load_state_dict(conv6.convnet.fc.state_dict())
+            self.fc.load_state_dict(conv6.convnet.fc.state_dict())
 
         self.scale = nn.Parameter(torch.FloatTensor(1).fill_(1.0), requires_grad=True)
     
@@ -181,10 +297,11 @@ class GNet(nn.Module):
             # Calculate 3*3 weight matrix
             batchSize = A.size(0)
             feature = self.attentionNet(torch.cat((A,B),1))
+            # print('feature shape: ', feature.shape)
             weight = self.toWeight(feature) # [batch,3*3]
             
             weightSquare = weight.view(batchSize,args.Fang*args.Fang,1,1,1)
-            weightSquare = weightSquare.expand(batchSize,args.Fang*args.Fang,3,224,224)
+            weightSquare = weightSquare.expand(batchSize,args.Fang*args.Fang,3,84,84)
             weightSquare = weightSquare * fixSquare # [batch,9,3,224,224]
             weightSquare = torch.sum(weightSquare,dim=1) # [batch,3,224,224]
 
@@ -203,8 +320,68 @@ class GNet(nn.Module):
             return Cfeature
 
 
+# class GNet(nn.Module):
+#     '''
+#         Two branch's performance are similar one branch's
+#         So we use one branch here
+#         Deeper attention network do not bring in benifits
+#         So we use small network here
+#     '''
+#     def __init__(self):
+#         super(GNet, self).__init__()
+#         # self.ANet = weightNet()
+#         # self.BNet = weightNet()
+#         self.attentionNet = smallNet()
 
-def euclidean_dist(x, y):
+#         self.toWeight = nn.Sequential(
+#                 nn.Linear(784,args.Fang*args.Fang),
+#                 # nn.ReLU(),
+#                 # nn.Linear(100,args.Fang*args.Fang),
+#                 # nn.Linear(1024,9),
+#                 # nn.Tanh(),
+#                 # nn.ReLU(),
+#             )
+
+#         self.CNet = weightNet()
+#         self.fc = nn.Linear(512,64)
+
+#         resnet = ClassificationNetwork()
+#         resnet.load_state_dict(torch.load('models/'+str(args.network)+'.t7', map_location=lambda storage, loc: storage))
+
+#         self.fc.load_state_dict(resnet.convnet.fc.state_dict())
+
+#         self.scale = nn.Parameter(torch.FloatTensor(1).fill_(1.0), requires_grad=True)
+    
+#     def forward(self,A,B=1,fixSquare=1,oneSquare=1,mode='one'):
+#         # A,B :[batch,3,224,224] fixSquare:[batch,9,3,224,224] oneSquare:[batch,3,224,224]
+#         if mode == 'two':
+#             # Calculate 3*3 weight matrix
+#             batchSize = A.size(0)
+#             feature = self.attentionNet(torch.cat((A,B),1))
+#             weight = self.toWeight(feature) # [batch,3*3]
+            
+#             weightSquare = weight.view(batchSize,args.Fang*args.Fang,1,1,1)
+#             weightSquare = weightSquare.expand(batchSize,args.Fang*args.Fang,3,224,224)
+#             weightSquare = weightSquare * fixSquare # [batch,9,3,224,224]
+#             weightSquare = torch.sum(weightSquare,dim=1) # [batch,3,224,224]
+
+#             C = weightSquare*A + (oneSquare - weightSquare) * B
+#             Cfeature = self.CNet(C)
+#             return Cfeature, weight, feature
+
+#         elif mode == 'one':
+#             # Calculate feature
+#             Cfeature = self.CNet(A)
+#             return Cfeature
+
+#         elif mode == 'fc':
+#             # Go through fc layer, just for debug
+#             Cfeature = self.fc(A)
+#             return Cfeature
+
+
+
+def euclidean_dist(x, y, model):
     # x: N x D
     # y: M x D
     n = x.size(0)
@@ -216,11 +393,11 @@ def euclidean_dist(x, y):
     y = y.unsqueeze(0).expand(n, m, d)
 
     # To accelerate training, but observe little effect
-    A = GNet.module.scale
+    A = model.module.scale
 
     return (torch.pow(x - y, 2)*A).sum(2)
 
-def iterateMix(supportImages,supportFeatures,supportBelongs,supportReals,ways, galleryFeature, args):
+def iterateMix(supportImages,supportFeatures,supportBelongs,supportReals,ways, galleryFeature, model, image_datasets, Gallery, args):
     '''
         Inputs:
             supportImages ways,shots,3,224,224
@@ -235,21 +412,21 @@ def iterateMix(supportImages,supportFeatures,supportBelongs,supportReals,ways, g
     # dists = euclidean_dist(galleryFeature,center) # [ways*unNum,ways]
     Num = galleryFeature.size(0)/10
     with torch.no_grad():
-        dists = euclidean_dist(galleryFeature[:Num].cuda(),center)
+        dists = euclidean_dist(galleryFeature[:Num].cuda(),center, model)
         for i in range(1,10):
             _end = (i+1)*Num
             if i==9:
                 _end = galleryFeature.size(0)
-            dist = euclidean_dist(galleryFeature[i*Num:_end].cuda(),center)
+            dist = euclidean_dist(galleryFeature[i*Num:_end].cuda(),center, model)
             dists = torch.cat((dists,dist),dim=0)
 
     dists = dists.transpose(1,0) # [ways,ways*unNum]
 
-    AImages = torch.FloatTensor(ways*args.shots*(1+args.augnum),3,224,224)
+    AImages = torch.FloatTensor(ways*args.shots*(1+args.augnum),3,84,84)
     ABelongs = torch.LongTensor(ways*args.shots*(1+args.augnum),1)
     Reals = torch.LongTensor(ways*args.shots*(1+args.augnum),1)
 
-    BImages = torch.FloatTensor(ways*args.shots*(1+args.augnum),3,224,224)
+    BImages = torch.FloatTensor(ways*args.shots*(1+args.augnum),3,84,84)
 
     _, bh = torch.topk(dists,args.chooseNum,dim=1,largest=False)
 
@@ -323,12 +500,14 @@ def train_model(model,num_epochs=25):
     patch_yl = []
     patch_yr = []
 
+    # if args.Fang == 3:
+    #     point = [0,74,148,224]
     if args.Fang == 3:
-        point = [0,74,148,224]
-    elif args.Fang == 5:
-        point = [0,44,88,132,176,224]
-    elif args.Fang == 7:
-        point = [0,32,64,96,128,160,192,224]
+        point = [0,28,56,84]
+    # elif args.Fang == 5:
+    #     point = [0,44,88,132,176,224]
+    # elif args.Fang == 7:
+    #     point = [0,32,64,96,128,160,192,224]
 
 
 
@@ -339,12 +518,12 @@ def train_model(model,num_epochs=25):
             patch_yl.append(point[j])
             patch_yr.append(point[j+1])
 
-    fixSquare = torch.zeros(1,args.Fang*args.Fang,3,224,224).float()
+    fixSquare = torch.zeros(1,args.Fang*args.Fang,3,84,84).float()
     for i in range(args.Fang*args.Fang):
         fixSquare[:,i,:,patch_xl[i]:patch_xr[i],patch_yl[i]:patch_yr[i]] = 1.00
     fixSquare = fixSquare.cuda()
 
-    oneSquare = torch.ones(1,3,224,224).float()
+    oneSquare = torch.ones(1,3,84,84).float()
     oneSquare = oneSquare.cuda()
     ######################################################################
     #plot related
@@ -355,7 +534,7 @@ def train_model(model,num_epochs=25):
     #################################################3
 
     mu = [0.485, 0.456, 0.406]
-    sigma = [0.229, 0.224, 0.225]
+    sigma = [0.229, 0.84, 0.225]
     since = time.time()
 
     best_model_wts = copy.deepcopy(model.state_dict())
@@ -371,29 +550,30 @@ def train_model(model,num_epochs=25):
     #############################################
     #Define the optimizer
 
-    # if torch.cuda.device_count() > 1:
+    # if torch.cuda.device_count() > 1:  
     if args.scratch == 0:
         optimizer_attention = torch.optim.Adam([
-                    {'params': model.attentionNet.parameters()},
-                    {'params': model.toWeight.parameters(), 'lr':  args.LR}
+                    {'params': model.module.attentionNet.parameters()},
+                    {'params': model.module.toWeight.parameters(), 'lr':  args.LR}
                 ], lr=args.LR) # 0.001
         optimizer_classifier = torch.optim.Adam([
-                    {'params': model.CNet.parameters(),'lr': args.clsLR*0.1},
-                    {'params': model.fc.parameters(), 'lr':  args.clsLR}
+                    {'params': model.module.CNet.parameters(),'lr': args.clsLR*0.1},
+                    {'params': model.module.fc.parameters(), 'lr':  args.clsLR}
                 ]) # 0.00003
         optimizer_scale = torch.optim.Adam([
-                    {'params': model.scale}
+                    {'params': model.module.scale}
                 ], lr=args.LR) # 0.001
     else:
         optimizer_attention = torch.optim.Adam([
-                    {'params': model.ANet.parameters()},
-                    {'params': model.BNet.parameters()},
-                    {'params': model.toWeight.parameters()}
+                    {'params': model.module.ANet.parameters()},
+                    {'params': model.module.BNet.parameters()},
+                    {'params': model.module.toWeight.parameters()}
                 ], lr=args.LR)
         optimizer_classifier = torch.optim.Adam([
-                    {'params': model.CNet.parameters()},
-                    {'params': model .fc.parameters()}
+                    {'params': model.module.CNet.parameters()},
+                    {'params': model.module.fc.parameters()}
                 ], lr=args.LR)
+
     # else:
         # optimizer_GNet = torch.optim.Adam([
                     # {'params': base_params},
@@ -463,7 +643,14 @@ def train_model(model,num_epochs=25):
                 supportFeatures = batchModel(model,supportInputs,requireGrad=False)
                 testFeatures = batchModel(model,testInputs,requireGrad=True)
 
-                AInputs, BInputs, ABLabels, ABReals = iterateMix(supportInputs,supportFeatures,supportLabels,supportReals,ways=ways, galleryFeature=galleryFeature, args=args)
+                #AInputs, BInputs, ABLabels, ABReals = iterateMix(supportInputs,supportFeatures,supportLabels,supportReals,ways=ways, galleryFeature=galleryFeature, args=args)
+                AInputs, BInputs, ABLabels, ABReals = iterateMix(supportInputs,supportFeatures,supportLabels,supportReals, \
+                                                                model=model, \
+                                                                ways=ways, \
+                                                                galleryFeature=galleryFeature, \
+                                                                image_datasets = image_datasets, \
+                                                                Gallery =Gallery, \
+                                                                args=args)
                 
 
                 Batch = (AInputs.size(0)+args.batchSize-1)//args.batchSize
@@ -483,8 +670,8 @@ def train_model(model,num_epochs=25):
                     if b<Batch-1:
                         _cfeature, weight, middleFeature = model(Variable(AInputs[b*args.batchSize:(b+1)*args.batchSize].cuda(),requires_grad=True),
                             Variable(BInputs[b*args.batchSize:(b+1)*args.batchSize].cuda(),requires_grad=True),
-                            Variable(fixSquare.expand(args.batchSize,args.Fang*args.Fang,3,224,224).cuda(),requires_grad=False),
-                            Variable(oneSquare.expand(args.batchSize,3,224,224).cuda(),requires_grad=False),
+                            Variable(fixSquare.expand(args.batchSize,args.Fang*args.Fang,3,84,84).cuda(),requires_grad=False),
+                            Variable(oneSquare.expand(args.batchSize,3,84,84).cuda(),requires_grad=False),
                             mode='two'
                             )
                         _cls = model(_cfeature,B=1,fixSquare=1,oneSquare=1,mode='fc')
@@ -492,8 +679,8 @@ def train_model(model,num_epochs=25):
                         _len = AInputs.size(0)-(b*args.batchSize)
                         _cfeature, weight, middleFeature = model(Variable(AInputs[b*args.batchSize:].cuda(),requires_grad=True),
                             B=Variable(BInputs[b*args.batchSize:].cuda(),requires_grad=True),
-                            fixSquare=Variable(fixSquare.expand(_len,args.Fang*args.Fang,3,224,224).cuda(),requires_grad=False),
-                            oneSquare=Variable(oneSquare.expand(_len,3,224,224).cuda(),requires_grad=False),
+                            fixSquare=Variable(fixSquare.expand(_len,args.Fang*args.Fang,3,84,84).cuda(),requires_grad=False),
+                            oneSquare=Variable(oneSquare.expand(_len,3,84,84).cuda(),requires_grad=False),
                             mode='two'
                             )
                         _cls = model(_cfeature,B=1,fixSquare=1,oneSquare=1,mode='fc')
@@ -514,7 +701,7 @@ def train_model(model,num_epochs=25):
                     allWeight[str(k)] = allWeight[str(k)] + Weights[k].view(-1).tolist()
 
                 center = Cfeatures.view(ways,args.shots*(1+args.augnum),-1).mean(1) # [ways,512]
-                dists = euclidean_dist(testFeatures,center) # [ways*test_num,ways]
+                dists = euclidean_dist(testFeatures,center, model) # [ways*test_num,ways]
 
                 log_p_y = F.log_softmax(-dists,dim=1).view(ways, args.test_num, -1) # [ways,test_num,ways]
 
@@ -563,14 +750,14 @@ def train_model(model,num_epochs=25):
                 phase+'_cls_accuracy': epoch_cls_accuracy,
             }
 
-            for tag, value in info.items():
-                logger.scalar_summary(tag, value, epoch+1)
+            # for tag, value in info.items():
+            #     logger.scalar_summary(tag, value, epoch+1)
 
             print('{} Loss: {:.4f} Accuracy: {:.4f}'.format(
                 phase, epoch_loss,epoch_accuracy))
 
-            # print('Classify Loss: {:.4f} Accuracy: {:.4f}'.format(
-            #     epoch_cls_loss,epoch_cls_accuracy))
+            print('Classify Loss: {:.4f} Accuracy: {:.4f}'.format(
+                epoch_cls_loss,epoch_cls_accuracy))
 
             # deep copy the model
             if phase == 'test' and epoch_loss < best_loss:
@@ -612,7 +799,8 @@ def run():
     # if torch.cuda.device_count() > 1:
         # print("Let's use", torch.cuda.device_count(), "GPUs!")
         # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
-    # GNet = nn.DataParallel(GNet)
+    if torch.cuda.device_count() > 1:
+        model = nn.DataParallel(model)
 
     model = model.cuda()
 
