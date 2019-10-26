@@ -14,10 +14,11 @@ import torchvision.models as models
 import torchvision
 import matplotlib.pyplot as plt
 from option import Options
-from datasets import softRandom
+from datasets import softRandom_84 as softRandom
 from torch.optim import lr_scheduler
 import copy
 import time
+import math
 rootdir = os.getcwd()
 
 args = Options().parse()
@@ -31,20 +32,118 @@ dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=args
 dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'val','test']}
 
 
+#####################################################################
+# Networks
+######################################################################
+class Flatten(nn.Module):
+    def __init__(self):
+        super(Flatten, self).__init__()
+
+    def forward(self, x):
+        return x.view(x.size(0), -1)
+
+
+def init_layer(L):
+    # Initialization using fan-in
+    if isinstance(L, nn.Conv2d):
+        n = L.kernel_size[0]*L.kernel_size[1]*L.out_channels
+        L.weight.data.normal_(0,math.sqrt(2.0/float(n)))
+    elif isinstance(L, nn.BatchNorm2d):
+        L.weight.data.fill_(1)
+        L.bias.data.fill_(0)
+
+
+# Simple Conv Block
+class ConvBlock(nn.Module):
+    maml = False #Default
+    def __init__(self, indim, outdim, pool = True, padding = 1):
+        super(ConvBlock, self).__init__()
+        self.indim  = indim
+        self.outdim = outdim
+        if self.maml:
+            self.C      = Conv2d_fw(indim, outdim, 3, padding = padding)
+            self.BN     = BatchNorm2d_fw(outdim)
+        else:
+            self.C      = nn.Conv2d(indim, outdim, 3, padding= padding)
+            self.BN     = nn.BatchNorm2d(outdim)
+        self.relu   = nn.ReLU(inplace=True)
+
+        self.parametrized_layers = [self.C, self.BN, self.relu]
+        if pool:
+            self.pool   = nn.MaxPool2d(2)
+            self.parametrized_layers.append(self.pool)
+
+        for layer in self.parametrized_layers:
+            init_layer(layer)
+
+        self.trunk = nn.Sequential(*self.parametrized_layers)
+
+
+    def forward(self,x):
+        out = self.trunk(x)
+        return out
+
+
+class ConvNet(nn.Module):
+    def __init__(self, depth, flatten = True):
+        super(ConvNet,self).__init__()
+        trunk = []
+        for i in range(depth):
+            indim = 3 if i == 0 else 64
+            outdim = 64
+            B = ConvBlock(indim, outdim, pool = ( i <4 ) ) #only pooling for fist 4 layers
+            trunk.append(B)
+
+        if flatten:
+            trunk.append(Flatten())
+
+        self.trunk = nn.Sequential(*trunk)
+        self.final_feat_dim = 1600
+
+    def forward(self,x):
+        out = self.trunk(x)
+        return out
+
+def Conv4():
+    return ConvNet(4)
+
+
+def Conv6():
+    return ConvNet(6)
+##############################
+
+
+
 ######################################################################
 # Define the Embedding Network
+
+# class ClassificationNetwork(nn.Module):
+#     def __init__(self):
+#         super(ClassificationNetwork, self).__init__()
+#         self.convnet = torchvision.models.resnet18(pretrained=False)
+#         num_ftrs = self.convnet.fc.in_features
+#         self.convnet.fc = nn.Linear(num_ftrs,64)
+
+#     def forward(self,inputs):
+#         outputs = self.convnet(inputs)
+        
+#         return outputs
 
 class ClassificationNetwork(nn.Module):
     def __init__(self):
         super(ClassificationNetwork, self).__init__()
-        self.convnet = torchvision.models.resnet18(pretrained=False)
-        num_ftrs = self.convnet.fc.in_features
+        self.convnet = Conv6()
+        num_ftrs = self.convnet.final_feat_dim
         self.convnet.fc = nn.Linear(num_ftrs,64)
 
     def forward(self,inputs):
         outputs = self.convnet(inputs)
+        #outputs = self.fc(outputs)
         
         return outputs
+
+
+
 
 classificationNetwork = ClassificationNetwork()
 if args.network!='None':
@@ -175,7 +274,9 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
 
 
 classificationNetwork = train_model(classificationNetwork, criterion, optimizer_embedding,
-                         embedding_lr_scheduler, num_epochs=35)##
+                         embedding_lr_scheduler, num_epochs=30)##
 
 
 torch.save(classificationNetwork.state_dict(),os.path.join(rootdir,'models/'+str(args.tensorname)+'.t7'))
+
+
