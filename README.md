@@ -32,7 +32,7 @@ We provide the data split in ./datasplit/,please put them at
 # For 224x224
 python onlyBasetwoLoss.py --network pretrainedClassifier --shots 5 --augnum 5 --fixCls 1 --tensorname metaNet_5shot --chooseNum 30 
 # For 84x84
-python onlyBasetwoLoss_84.py --network pretrainedClassifier --shots 5 --augnum 5 --fixCls 1 --tensorname metaNet_5shot --chooseNum 30 
+python onlyBasetwoLoss_84.py --network pretrainedClassifier_84 --shots 5 --augnum 5 --fixCls 1 --tensorname metaNet_5shot --chooseNum 30 
 
 ########################################
 #(command below has not been tested yet.)
