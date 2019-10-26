@@ -21,7 +21,7 @@ A PyTorch implementation of "Image Deformation Meta-Networks for One-Shot Learni
 
 ```
 python=2.7
-pytorch=0.4.0
+pytorch=1.0
 ```
 
 ## Datasets
