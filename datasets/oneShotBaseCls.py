@@ -15,10 +15,11 @@ import numpy
 #from watch import NlabelTovector
 import getpass  
 userName = getpass.getuser()
-import pickle as pkl
-pathminiImageNet = 'C://Users/bezer/Desktop/IDeMe-Net/'
+
+pathminiImageNet = '/home/'+userName+'/data/miniImagenet/'
 pathImages = os.path.join(pathminiImageNet,'images/')
 # LAMBDA FUNCTIONS
+filenameToPILImage = lambda x: Image.open(x)
 
 np.random.seed(2191)
 
@@ -28,86 +29,69 @@ patch_yl = [0,74,148,0,74,148,0,74,148]
 patch_yr = [74,148,224,74,148,224,74,148,224]
 
 class miniImagenetOneshotDataset(data.Dataset):
-    def __init__(self, dataroot = 'C://Users/bezer/Desktop/IDeMe-Net/datasplit', type = 'train',ways=5,shots=1,test_num=1,epoch=100,galleryNum = 10):
+    def __init__(self, dataroot = '/home/'+userName+'/data/miniImagenet', type = 'train',ways=5,shots=1,test_num=1,epoch=100,galleryNum = 10):
         # oneShot setting
         self.ways = ways
         self.shots = shots
         self.test_num = test_num # indicate test number of each class
         self.__size = epoch
 
-        self.transform = transforms.Compose([
+        self.transform = transforms.Compose([filenameToPILImage,
                                             transforms.Resize(256),
                                             transforms.CenterCrop(224),
                                             transforms.ToTensor(),
                                             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
                                             ])
 
-        self.galleryTransform = transforms.Compose([
-                                            transforms.RandomHorizontalFlip(p=0.5),
+        self.galleryTransform = transforms.Compose([filenameToPILImage,
+                                            transforms.RandomHorizontalFlip(),
                                             transforms.Resize(256),
                                             transforms.CenterCrop(224),
                                             transforms.ToTensor(),
                                             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
                                             ])
 
-
-        def _read_cache(cache_path):
+        def loadSplit(splitFile):
             dictLabels = {}
-            c = 0
-            if os.path.exists(cache_path):
-              try:
-                with open(cache_path, "rb") as f:
-                    data = pkl.load(f, encoding='bytes')
-                  
-                    for img, cls in zip(data[b'image_data'], data[b'class_dict']):
-                        if cls in dictLabels.keys():
-                            dictLabels[cls].append(img)
-                        else:       
-                            dictLabels[cls] = [img]
-                return dictLabels
-              except:
-                with open(cache_path, "rb") as f:
-                    data = pkl.load(f)
-                    
-                    for cls, idxs in data['class_dict'].items():
-                    
-                        dictLabels[cls] = []
-                        
-                        for i in idxs:
-                            dictLabels[cls].append(Image.fromarray(data['image_data'][i]))
-                return dictLabels
-            else:
-                print("NO FILE FOUND")
-                exit()
+            with open(splitFile) as csvfile:
+                csvreader = csv.reader(csvfile, delimiter=',')
+                next(csvreader, None)
+                for i,row in enumerate(csvreader):
+                    filename = row[0]
+                    label = row[1]
 
-    
+                    if label in dictLabels.keys():
+                        dictLabels[label].append(filename)
+                    else:
+                        dictLabels[label] = [filename]
+            return dictLabels
+
         self.miniImagenetImagesDir = os.path.join(dataroot,'images')
 
-        self.unData = _read_cache(cache_path = os.path.join(dataroot,'mini-imagenet-cache-train' + '.pkl'))
-        self.data = _read_cache(cache_path   = os.path.join(dataroot,'mini-imagenet-cache-' + type + '.pkl'))
+        self.unData = loadSplit(splitFile = os.path.join(dataroot,'train' + '.csv'))
+        self.data = loadSplit(splitFile = os.path.join(dataroot,type + '.csv'))
 
-        self.type = type    
+        self.type = type
         self.data = collections.OrderedDict(sorted(self.data.items()))
         self.unData = collections.OrderedDict(sorted(self.unData.items()))
-        self.galleryNum = galleryNum    
+        self.galleryNum = galleryNum
 
         # sample Gallery
         self.Gallery = []
-        import random
-        random.seed(2019)
-        for classes in self.unData.keys():
-            Files = random.sample(self.unData[classes], self.galleryNum)
+        numpy.random.seed(2019)
+        for classes in range(len(self.unData.keys())):
+            Files = np.random.choice(self.unData[self.unData.keys()[classes]], self.galleryNum, False)
             for file in Files:
                 self.Gallery.append(file)
-    
+
         numpy.random.seed()
 
         self.keyTobh = {}
         for c in range(len(self.data.keys())):
-            self.keyTobh[list(self.data.keys())[c]] = c
+            self.keyTobh[self.data.keys()[c]] = c
 
         for c in range(len(self.unData.keys())):
-            self.keyTobh[list(self.unData.keys())[c]] = c
+            self.keyTobh[self.unData.keys()[c]] = c
 
         #print(self.keyTobh)
     def batchModel(model,AInputs,requireGrad):
@@ -142,7 +126,7 @@ class miniImagenetOneshotDataset(data.Dataset):
             jFirst = True
             Images = 1
             for j in range(b*batchSize,min((b+1)*batchSize,len(self.Gallery))):
-                image = self.transform(self.Gallery[j])
+                image = self.transform(os.path.join(pathImages,str(self.Gallery[j])))
                 image = image.unsqueeze(0)
                 if jFirst:
                     jFirst=False
@@ -161,9 +145,10 @@ class miniImagenetOneshotDataset(data.Dataset):
 
         return Cfeatures
 
-    def get_image(self,img):
-        image = self.galleryTransform(img)
+    def get_image(self,file):
+        image = self.galleryTransform(os.path.join(pathImages,str(file)))
         return image
+
 
     def __getitem__(self, index):
         # ways,shots,3,224,224
@@ -209,7 +194,11 @@ class miniImagenetOneshotDataset(data.Dataset):
         return supportImages,supportBelongs,supportReal,testImages,testBelongs,testReal
 
     def __len__(self):
-        return self.__size  
+        return self.__size
+
+def worker_init_fn(worker_id):                                                          
+    np.random.seed(np.random.get_state()[1][0] + worker_id)
+
 # if __name__ == '__main__':
 #     dataTrain = torch.utils.data.DataLoader(miniImagenetOneshotDataset(type='train',ways=5,shots=5,test_num=15,epoch=1000),batch_size=1,shuffle=False,num_workers=2,worker_init_fn=worker_init_fn)
 
@@ -233,5 +222,3 @@ class miniImagenetOneshotDataset(data.Dataset):
 #             else:
 #                 break
         
-
-
