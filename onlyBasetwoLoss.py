@@ -204,7 +204,7 @@ class GNet(nn.Module):
 
 
 
-def euclidean_dist(x, y):
+def euclidean_dist(x, y, model):
     # x: N x D
     # y: M x D
     n = x.size(0)
@@ -216,11 +216,11 @@ def euclidean_dist(x, y):
     y = y.unsqueeze(0).expand(n, m, d)
 
     # To accelerate training, but observe little effect
-    A = GNet.module.scale
+    A = model.module.scale
 
     return (torch.pow(x - y, 2)*A).sum(2)
 
-def iterateMix(supportImages,supportFeatures,supportBelongs,supportReals,ways, galleryFeature, args):
+def iterateMix(supportImages,supportFeatures,supportBelongs,supportReals,ways, galleryFeature, model, image_datasets, Gallery, args):
     '''
         Inputs:
             supportImages ways,shots,3,224,224
@@ -235,12 +235,12 @@ def iterateMix(supportImages,supportFeatures,supportBelongs,supportReals,ways, g
     # dists = euclidean_dist(galleryFeature,center) # [ways*unNum,ways]
     Num = galleryFeature.size(0)/10
     with torch.no_grad():
-        dists = euclidean_dist(galleryFeature[:Num].cuda(),center)
+        dists = euclidean_dist(galleryFeature[:Num].cuda(),center, model)
         for i in range(1,10):
             _end = (i+1)*Num
             if i==9:
                 _end = galleryFeature.size(0)
-            dist = euclidean_dist(galleryFeature[i*Num:_end].cuda(),center)
+            dist = euclidean_dist(galleryFeature[i*Num:_end].cuda(),center, model)
             dists = torch.cat((dists,dist),dim=0)
 
     dists = dists.transpose(1,0) # [ways,ways*unNum]
@@ -371,29 +371,30 @@ def train_model(model,num_epochs=25):
     #############################################
     #Define the optimizer
 
-    # if torch.cuda.device_count() > 1:
+    # if torch.cuda.device_count() > 1:  
     if args.scratch == 0:
         optimizer_attention = torch.optim.Adam([
-                    {'params': model.attentionNet.parameters()},
-                    {'params': model.toWeight.parameters(), 'lr':  args.LR}
+                    {'params': model.module.attentionNet.parameters()},
+                    {'params': model.module.toWeight.parameters(), 'lr':  args.LR}
                 ], lr=args.LR) # 0.001
         optimizer_classifier = torch.optim.Adam([
-                    {'params': model.CNet.parameters(),'lr': args.clsLR*0.1},
-                    {'params': model.fc.parameters(), 'lr':  args.clsLR}
+                    {'params': model.module.CNet.parameters(),'lr': args.clsLR*0.1},
+                    {'params': model.module.fc.parameters(), 'lr':  args.clsLR}
                 ]) # 0.00003
         optimizer_scale = torch.optim.Adam([
-                    {'params': model.scale}
+                    {'params': model.module.scale}
                 ], lr=args.LR) # 0.001
     else:
         optimizer_attention = torch.optim.Adam([
-                    {'params': model.ANet.parameters()},
-                    {'params': model.BNet.parameters()},
-                    {'params': model.toWeight.parameters()}
+                    {'params': model.module.ANet.parameters()},
+                    {'params': model.module.BNet.parameters()},
+                    {'params': model.module.toWeight.parameters()}
                 ], lr=args.LR)
         optimizer_classifier = torch.optim.Adam([
-                    {'params': model.CNet.parameters()},
-                    {'params': model .fc.parameters()}
+                    {'params': model.module.CNet.parameters()},
+                    {'params': model.module.fc.parameters()}
                 ], lr=args.LR)
+
     # else:
         # optimizer_GNet = torch.optim.Adam([
                     # {'params': base_params},
@@ -463,7 +464,14 @@ def train_model(model,num_epochs=25):
                 supportFeatures = batchModel(model,supportInputs,requireGrad=False)
                 testFeatures = batchModel(model,testInputs,requireGrad=True)
 
-                AInputs, BInputs, ABLabels, ABReals = iterateMix(supportInputs,supportFeatures,supportLabels,supportReals,ways=ways, galleryFeature=galleryFeature, args=args)
+                #AInputs, BInputs, ABLabels, ABReals = iterateMix(supportInputs,supportFeatures,supportLabels,supportReals,ways=ways, galleryFeature=galleryFeature, args=args)
+                AInputs, BInputs, ABLabels, ABReals = iterateMix(supportInputs,supportFeatures,supportLabels,supportReals, \
+                                                                model=model, \
+                                                                ways=ways, \
+                                                                galleryFeature=galleryFeature, \
+                                                                image_datasets = image_datasets, \
+                                                                Gallery =Gallery, \
+                                                                args=args)
                 
 
                 Batch = (AInputs.size(0)+args.batchSize-1)//args.batchSize
@@ -514,7 +522,7 @@ def train_model(model,num_epochs=25):
                     allWeight[str(k)] = allWeight[str(k)] + Weights[k].view(-1).tolist()
 
                 center = Cfeatures.view(ways,args.shots*(1+args.augnum),-1).mean(1) # [ways,512]
-                dists = euclidean_dist(testFeatures,center) # [ways*test_num,ways]
+                dists = euclidean_dist(testFeatures,center, model) # [ways*test_num,ways]
 
                 log_p_y = F.log_softmax(-dists,dim=1).view(ways, args.test_num, -1) # [ways,test_num,ways]
 
@@ -563,14 +571,14 @@ def train_model(model,num_epochs=25):
                 phase+'_cls_accuracy': epoch_cls_accuracy,
             }
 
-            for tag, value in info.items():
-                logger.scalar_summary(tag, value, epoch+1)
+            # for tag, value in info.items():
+            #     logger.scalar_summary(tag, value, epoch+1)
 
             print('{} Loss: {:.4f} Accuracy: {:.4f}'.format(
                 phase, epoch_loss,epoch_accuracy))
 
-            # print('Classify Loss: {:.4f} Accuracy: {:.4f}'.format(
-            #     epoch_cls_loss,epoch_cls_accuracy))
+            print('Classify Loss: {:.4f} Accuracy: {:.4f}'.format(
+                epoch_cls_loss,epoch_cls_accuracy))
 
             # deep copy the model
             if phase == 'test' and epoch_loss < best_loss:
@@ -612,7 +620,8 @@ def run():
     # if torch.cuda.device_count() > 1:
         # print("Let's use", torch.cuda.device_count(), "GPUs!")
         # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
-    # GNet = nn.DataParallel(GNet)
+    if torch.cuda.device_count() > 1:
+        model = nn.DataParallel(model)
 
     model = model.cuda()
 
