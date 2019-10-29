@@ -630,7 +630,7 @@ def run():
 
     # ... after training, save your model 
 
-    if torch.cuda.device_count() > 1:
+    if torch.cuda.device_count() > 0:
         torch.save(model.module.state_dict(),os.path.join(rootdir,'models/'+str(args.tensorname)+'.t7'))
     else:
         torch.save(model.state_dict(),os.path.join(rootdir,'models/'+str(args.tensorname)+'.t7'))
