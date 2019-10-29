@@ -799,7 +799,7 @@ def run():
     # if torch.cuda.device_count() > 1:
         # print("Let's use", torch.cuda.device_count(), "GPUs!")
         # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
-    if torch.cuda.device_count() > 1:
+    if torch.cuda.device_count() > 0:
         model = nn.DataParallel(model)
 
     model = model.cuda()
