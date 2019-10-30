@@ -23,6 +23,9 @@ from torch.optim import lr_scheduler
 import copy
 import time
 import math
+
+from logger import get_logger
+
 class Denormalize(object):
     def __init__(self, mean, std):
         self.mean = mean
@@ -490,7 +493,7 @@ def batchModel(model,AInputs,requireGrad):
 
     return Cfeatures
 
-def train_model(model,num_epochs=25):
+def train_model(model, logger, num_epochs=25):
     
     rootdir = os.getcwd()
 
@@ -768,11 +771,22 @@ def train_model(model,num_epochs=25):
             # for tag, value in info.items():
             #     logger.scalar_summary(tag, value, epoch+1)
 
-            print('{} Loss: {:.4f} Accuracy: {:.4f}'.format(
-                phase, epoch_loss,epoch_accuracy))
+            # print('{} Loss: {:.4f} Accuracy: {:.4f}'.format(
+            #     phase, epoch_loss,epoch_accuracy))
 
-            print('Classify Loss: {:.4f} Accuracy: {:.4f}'.format(
-                epoch_cls_loss,epoch_cls_accuracy))
+            # print('Classify Loss: {:.4f} Accuracy: {:.4f}'.format(
+            #     epoch_cls_loss,epoch_cls_accuracy))
+
+
+            # Logging
+            logger.info("=========================================")
+            logger.info("Epoch {0}, Phase {1}".format(epoch,phase))
+            logger.info("=========================================")
+            logger.info("loss: {0:.4f};".format(epoch_loss))
+            logger.info("accuracy: {0:.4f};".format(epoch_accuracy))
+            logger.info("_cls_loss: {0:.4f};".format(epoch_cls_loss))
+            logger.info("_cls_accuracy: {0:.4f};".format(epoch_cls_accuracy))
+
 
             # deep copy the model
             if phase == 'test' and epoch_loss < best_loss:
@@ -804,6 +818,7 @@ def train_model(model,num_epochs=25):
 # .. to load your previously training model:
 #model.load_state_dict(torch.load('mytraining.pt'))
 def run():
+    logger = get_logger(name=args.name_log)
     model = GNet()
 
 
@@ -819,7 +834,7 @@ def run():
 
     model = model.cuda()
 
-    model = train_model(model, num_epochs=120)
+    model = train_model(model, logger, num_epochs=120)
     ##
 
     # ... after training, save your model 

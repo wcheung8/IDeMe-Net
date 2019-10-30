@@ -50,6 +50,8 @@ class Options():
                             help='whether to fix cls part')
         parser.add_argument('--chooseNum', default=15,type=int,
                             help='number of choosing')
+        parser.add_argument('--name_log', default='',type=str,
+                            help='name of the log file')
 
         self.parser = parser
 
