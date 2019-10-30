@@ -148,18 +148,33 @@ def weightNet():
         
 #         return outputs
 
+# class ClassificationNetwork(nn.Module):
+#     def __init__(self):
+#         super(ClassificationNetwork, self).__init__()
+#         self.convnet = Conv6()
+#         num_ftrs = self.convnet.final_feat_dim
+#         self.convnet.fc = nn.Linear(num_ftrs,64)
+
+#     def forward(self,inputs):
+#         outputs = self.convnet(inputs)
+#         #outputs = self.fc(outputs)
+        
+#         return outputs
+
 class ClassificationNetwork(nn.Module):
     def __init__(self):
         super(ClassificationNetwork, self).__init__()
         self.convnet = Conv6()
         num_ftrs = self.convnet.final_feat_dim
-        self.convnet.fc = nn.Linear(num_ftrs,64)
+        self.fc = nn.Linear(num_ftrs,64)
 
     def forward(self,inputs):
         outputs = self.convnet(inputs)
-        #outputs = self.fc(outputs)
+        outputs = self.fc(outputs)
         
         return outputs
+
+
 
 # resnet18 without fc layer
 # class weightNet(nn.Module):
@@ -287,7 +302,7 @@ class GNet(nn.Module):
             conv6.load_state_dict(torch.load('models/'+str(args.network)+'.t7', map_location=lambda storage, loc: storage))
             self.CNet.trunk.load_state_dict(conv6.convnet.trunk.state_dict())
             # self.fc.load_state_dict(conv6.convnet.fc.state_dict())
-            self.fc.load_state_dict(conv6.convnet.fc.state_dict())
+            self.fc.load_state_dict(conv6.fc.state_dict())
 
         self.scale = nn.Parameter(torch.FloatTensor(1).fill_(1.0), requires_grad=True)
     

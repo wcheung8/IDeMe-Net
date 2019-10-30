@@ -134,11 +134,11 @@ class ClassificationNetwork(nn.Module):
         super(ClassificationNetwork, self).__init__()
         self.convnet = Conv6()
         num_ftrs = self.convnet.final_feat_dim
-        self.convnet.fc = nn.Linear(num_ftrs,64)
+        self.fc = nn.Linear(num_ftrs,64)
 
     def forward(self,inputs):
         outputs = self.convnet(inputs)
-        #outputs = self.fc(outputs)
+        outputs = self.fc(outputs)
         
         return outputs
 
