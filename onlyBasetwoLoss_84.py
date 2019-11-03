@@ -800,8 +800,8 @@ def train_model(model, logger, num_epochs=25):
                 phase+'_cls_accuracy': epoch_cls_accuracy,
             }
 
-            # for tag, value in info.items():
-            #     logger.scalar_summary(tag, value, epoch+1)
+            for tag, value in info.items():
+                logger.scalar_summary(tag, value, epoch+1)
 
             # Logging
             logger.info("=========================================")
