@@ -23,9 +23,6 @@ from torch.optim import lr_scheduler
 import copy
 import time
 import math
-
-from logger import get_logger
-
 class Denormalize(object):
     def __init__(self, mean, std):
         self.mean = mean
@@ -151,33 +148,18 @@ def weightNet():
         
 #         return outputs
 
-# class ClassificationNetwork(nn.Module):
-#     def __init__(self):
-#         super(ClassificationNetwork, self).__init__()
-#         self.convnet = Conv6()
-#         num_ftrs = self.convnet.final_feat_dim
-#         self.convnet.fc = nn.Linear(num_ftrs,64)
-
-#     def forward(self,inputs):
-#         outputs = self.convnet(inputs)
-#         #outputs = self.fc(outputs)
-        
-#         return outputs
-
 class ClassificationNetwork(nn.Module):
     def __init__(self):
         super(ClassificationNetwork, self).__init__()
         self.convnet = Conv6()
         num_ftrs = self.convnet.final_feat_dim
-        self.fc = nn.Linear(num_ftrs,64)
+        self.convnet.fc = nn.Linear(num_ftrs,64)
 
     def forward(self,inputs):
         outputs = self.convnet(inputs)
-        outputs = self.fc(outputs)
+        #outputs = self.fc(outputs)
         
         return outputs
-
-
 
 # resnet18 without fc layer
 # class weightNet(nn.Module):
@@ -305,7 +287,7 @@ class GNet(nn.Module):
             conv6.load_state_dict(torch.load('models/'+str(args.network)+'.t7', map_location=lambda storage, loc: storage))
             self.CNet.trunk.load_state_dict(conv6.convnet.trunk.state_dict())
             # self.fc.load_state_dict(conv6.convnet.fc.state_dict())
-            self.fc.load_state_dict(conv6.fc.state_dict())
+            self.fc.load_state_dict(conv6.convnet.fc.state_dict())
 
         self.scale = nn.Parameter(torch.FloatTensor(1).fill_(1.0), requires_grad=True)
     
@@ -425,10 +407,10 @@ def iterateMix(supportImages,supportFeatures,supportBelongs,supportReals,ways, g
             ABelongs: The label in [0,way-1]
             Reals: The label in [0,63] # Just for debug
     '''
-    center = supportFeatures.view(ways,args.shots,-1).mean(1)
-
+    ways = int(ways)
+    center = supportFeatures.view([int(ways),args.shots,-1]).mean(1)
     # dists = euclidean_dist(galleryFeature,center) # [ways*unNum,ways]
-    Num = galleryFeature.size(0)/10
+    Num = int(galleryFeature.size(0)/10)
     with torch.no_grad():
         dists = euclidean_dist(galleryFeature[:Num].cuda(),center, model)
         for i in range(1,10):
@@ -440,11 +422,11 @@ def iterateMix(supportImages,supportFeatures,supportBelongs,supportReals,ways, g
 
     dists = dists.transpose(1,0) # [ways,ways*unNum]
 
-    AImages = torch.FloatTensor(ways*args.shots*(1+args.augnum),3,84,84)
-    ABelongs = torch.LongTensor(ways*args.shots*(1+args.augnum),1)
-    Reals = torch.LongTensor(ways*args.shots*(1+args.augnum),1)
+    AImages = torch.FloatTensor(int(ways*args.shots*(1+args.augnum)),3,84,84)
+    ABelongs = torch.LongTensor(int(ways*args.shots*(1+args.augnum)),1)
+    Reals = torch.LongTensor(int(ways*args.shots*(1+args.augnum)),1)
 
-    BImages = torch.FloatTensor(ways*args.shots*(1+args.augnum),3,84,84)
+    BImages = torch.FloatTensor(int(ways*args.shots*(1+args.augnum)),3,84,84)
 
     _, bh = torch.topk(dists,args.chooseNum,dim=1,largest=False)
 
@@ -493,7 +475,7 @@ def batchModel(model,AInputs,requireGrad):
 
     return Cfeatures
 
-def train_model(model, logger, num_epochs=25):
+def train_model(model,num_epochs=25):
     
     rootdir = os.getcwd()
 
@@ -656,7 +638,7 @@ def train_model(model, logger, num_epochs=25):
                 testInputs = testInputs.squeeze(0)
                 testLabels = testLabels.squeeze(0).cuda()
 
-                ways = supportInputs.size(0)/args.shots
+                ways = int(supportInputs.size(0)/args.shots)
 
                 supportFeatures = batchModel(model,supportInputs,requireGrad=False)
                 testFeatures = batchModel(model,testInputs,requireGrad=True)
@@ -771,22 +753,11 @@ def train_model(model, logger, num_epochs=25):
             # for tag, value in info.items():
             #     logger.scalar_summary(tag, value, epoch+1)
 
-            # print('{} Loss: {:.4f} Accuracy: {:.4f}'.format(
-            #     phase, epoch_loss,epoch_accuracy))
+            print('{} Loss: {:.4f} Accuracy: {:.4f}'.format(
+                phase, epoch_loss,epoch_accuracy))
 
-            # print('Classify Loss: {:.4f} Accuracy: {:.4f}'.format(
-            #     epoch_cls_loss,epoch_cls_accuracy))
-
-
-            # Logging
-            logger.info("=========================================")
-            logger.info("Epoch {0}, Phase {1}".format(epoch,phase))
-            logger.info("=========================================")
-            logger.info("loss: {0:.4f};".format(epoch_loss))
-            logger.info("accuracy: {0:.4f};".format(epoch_accuracy))
-            logger.info("_cls_loss: {0:.4f};".format(epoch_cls_loss))
-            logger.info("_cls_accuracy: {0:.4f};".format(epoch_cls_accuracy))
-
+            print('Classify Loss: {:.4f} Accuracy: {:.4f}'.format(
+                epoch_cls_loss,epoch_cls_accuracy))
 
             # deep copy the model
             if phase == 'test' and epoch_loss < best_loss:
@@ -818,7 +789,6 @@ def train_model(model, logger, num_epochs=25):
 # .. to load your previously training model:
 #model.load_state_dict(torch.load('mytraining.pt'))
 def run():
-    logger = get_logger(name=args.name_log)
     model = GNet()
 
 
@@ -834,7 +804,7 @@ def run():
 
     model = model.cuda()
 
-    model = train_model(model, logger, num_epochs=120)
+    model = train_model(model, num_epochs=120)
     ##
 
     # ... after training, save your model 

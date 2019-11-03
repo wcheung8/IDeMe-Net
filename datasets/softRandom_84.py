@@ -13,7 +13,7 @@ import getpass
 userName = getpass.getuser()
 
 
-pathminiImageNet = '/home/'+userName+'/data/miniImagenet/'
+pathminiImageNet = '../root/data/miniImagenet/'
 pathImages = os.path.join(pathminiImageNet,'images/')
 # LAMBDA FUNCTIONS
 filenameToPILImage = lambda x: Image.open(x)
@@ -35,7 +35,7 @@ for i in range(Fang):
         patch_yr.append(point[j+1])
 
 class miniImagenetEmbeddingDataset(data.Dataset):
-    def __init__(self, dataroot = '/home/'+userName+'/data/miniImagenet', type = 'train'):
+    def __init__(self, dataroot = '../root/data/miniImagenet', type = 'train'):
         if type == 'specialtest':
             type = 'test'
         # Transformations to the image
@@ -96,15 +96,15 @@ class miniImagenetEmbeddingDataset(data.Dataset):
 
         self.type = type
         self.data = collections.OrderedDict(sorted(self.data.items()))
-        self.classes_dict = {self.data.keys()[i]:i  for i in range(len(self.data.keys()))} # map NLabel to id(0-99)
-        self.bhToClass = {i:self.data.keys()[i]  for i in range(len(self.data.keys()))}
+        self.classes_dict = {list(self.data.keys())[i]:i  for i in range(len(list(self.data.keys())))} # map NLabel to id(0-99)
+        self.bhToClass = {i:list(self.data.keys())[i]  for i in range(len(list(self.data.keys())))}
 
         self.Files = []
         self.belong = []
 
-        for c in range(len(self.data.keys())):
-            self.data[self.data.keys()[c]] = self.data[self.data.keys()[c]][:500]
-            for file in self.data[self.data.keys()[c]]:
+        for c in range(len(list(self.data.keys()))):
+            self.data[list(self.data.keys())[c]] = self.data[list(self.data.keys())[c]][:500]
+            for file in self.data[list(self.data.keys())[c]]:
                 self.Files.append(file)
                 self.belong.append(c)
         
@@ -112,7 +112,7 @@ class miniImagenetEmbeddingDataset(data.Dataset):
         self.belong = self.belong + self.belong
         self.__size = len(self.Files)
 
-        print(type,self.__size,len(self.data.keys()))
+        print(type,self.__size,len(list(self.data.keys())))
 
     def __getitem__(self, index):
 

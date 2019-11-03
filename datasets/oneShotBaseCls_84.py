@@ -22,7 +22,7 @@ args = Options().parse()
 
 userName = getpass.getuser()
 
-pathminiImageNet = '/home/'+userName+'/data/miniImagenet/'
+pathminiImageNet = '../root/data/miniImagenet/'
 pathImages = os.path.join(pathminiImageNet,'images/')
 # LAMBDA FUNCTIONS
 filenameToPILImage = lambda x: Image.open(x)
@@ -35,7 +35,7 @@ patch_yl = [0,74,148,0,74,148,0,74,148]
 patch_yr = [74,148,224,74,148,224,74,148,224]
 
 class miniImagenetOneshotDataset(data.Dataset):
-    def __init__(self, dataroot = '/home/'+userName+'/data/miniImagenet', type = 'train',ways=5,shots=1,test_num=1,epoch=100,galleryNum = 10):
+    def __init__(self, dataroot = '../root/data/miniImagenet', type = 'train',ways=5,shots=1,test_num=1,epoch=100,galleryNum = 10):
         # oneShot setting
         self.ways = ways
         self.shots = shots
@@ -112,19 +112,19 @@ class miniImagenetOneshotDataset(data.Dataset):
         # sample Gallery
         self.Gallery = []
         numpy.random.seed(2019)
-        for classes in range(len(self.unData.keys())):
-            Files = np.random.choice(self.unData[self.unData.keys()[classes]], self.galleryNum, False)
+        for classes in range(len(list(self.unData.keys()))):
+            Files = np.random.choice(self.unData[list(self.unData.keys())[classes]], self.galleryNum, False)
             for file in Files:
                 self.Gallery.append(file)
 
         numpy.random.seed()
 
         self.keyTobh = {}
-        for c in range(len(self.data.keys())):
-            self.keyTobh[self.data.keys()[c]] = c
+        for c in range(len(list(self.data.keys()))):
+            self.keyTobh[list(self.data.keys())[c]] = c
 
-        for c in range(len(self.unData.keys())):
-            self.keyTobh[self.unData.keys()[c]] = c
+        for c in range(len(list(self.unData.keys()))):
+            self.keyTobh[list(self.unData.keys())[c]] = c
 
         #print(self.keyTobh)
     def batchModel(model,AInputs,requireGrad):
@@ -196,7 +196,7 @@ class miniImagenetOneshotDataset(data.Dataset):
         testBelongs = torch.LongTensor(self.ways*self.test_num,1)
         testReal = torch.LongTensor(self.ways*self.test_num,1)
 
-        selected_classes = np.random.choice(self.data.keys(), self.ways, False)
+        selected_classes = np.random.choice(list(self.data.keys()), self.ways, False)
         for i in range(self.ways):
             files = np.random.choice(self.data[selected_classes[i]], self.shots, False)
             for j in range(self.shots):

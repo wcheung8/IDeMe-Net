@@ -53,6 +53,11 @@ class Options():
         parser.add_argument('--name_log', default='',type=str,
                             help='name of the log file')
 
+        parser.add_argument('--size', default=84,type=int,
+                            help='number of choosing')
+        parser.add_argument('--mixupLayer', default=1,type=int,
+                            help='number of choosing')
+
         self.parser = parser
 
     def parse(self):

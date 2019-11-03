@@ -84,24 +84,37 @@ class ConvBlock(nn.Module):
         return out
 
 
+
 class ConvNet(nn.Module):
     def __init__(self, depth, flatten = True):
         super(ConvNet,self).__init__()
-        trunk = []
+        self.layers = []
         for i in range(depth):
             indim = 3 if i == 0 else 64
             outdim = 64
             B = ConvBlock(indim, outdim, pool = ( i <4 ) ) #only pooling for fist 4 layers
-            trunk.append(B)
+            self.layers.append(B.cuda())
 
+        for i, v in enumerate(self.layers):
+            setattr(self, str(i), v)
+            
         if flatten:
-            trunk.append(Flatten())
+            self.layers.append(Flatten().cuda())
 
-        self.trunk = nn.Sequential(*trunk)
         self.final_feat_dim = 1600
 
-    def forward(self,x):
-        out = self.trunk(x)
+    def embed(self,x,intermediate=0):
+        out = x
+        for i, layer in enumerate(self.layers):
+            if i == intermediate:
+                return out
+            out = layer(out)
+        return out
+        
+    def forward(self,x,intermediate=0):
+        out = x
+        for i in range(intermediate, len(self.layers)):
+            out = self.layers[i](out)
         return out
 
 def Conv4():
