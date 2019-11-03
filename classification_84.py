@@ -95,12 +95,13 @@ class ConvNet(nn.Module):
             B = ConvBlock(indim, outdim, pool = ( i <4 ) ) #only pooling for fist 4 layers
             self.layers.append(B.cuda())
 
-        for i, v in enumerate(self.layers):
-            setattr(self, str(i), v)
             
         if flatten:
             self.layers.append(Flatten().cuda())
 
+        for i, v in enumerate(self.layers):
+            setattr(self, str(i), v)
+            
         self.final_feat_dim = 1600
 
     def embed(self,x,intermediate=0):

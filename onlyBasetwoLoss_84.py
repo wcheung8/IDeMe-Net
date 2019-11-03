@@ -102,24 +102,37 @@ class ConvBlock(nn.Module):
         return out
 
 
+
 class ConvNet(nn.Module):
     def __init__(self, depth, flatten = True):
         super(ConvNet,self).__init__()
-        trunk = []
+        self.layers = []
         for i in range(depth):
             indim = 3 if i == 0 else 64
             outdim = 64
             B = ConvBlock(indim, outdim, pool = ( i <4 ) ) #only pooling for fist 4 layers
-            trunk.append(B)
+            self.layers.append(B.cuda())
 
+        for i, v in enumerate(self.layers):
+            setattr(self, str(i), v)
+            
         if flatten:
-            trunk.append(Flatten())
+            self.layers.append(Flatten().cuda())
 
-        self.trunk = nn.Sequential(*trunk)
         self.final_feat_dim = 1600
 
-    def forward(self,x):
-        out = self.trunk(x)
+    def embed(self,x,intermediate=0):
+        out = x
+        for i, layer in enumerate(self.layers):
+            if i == intermediate:
+                return out
+            out = layer(out)
+        return out
+        
+    def forward(self,x,intermediate=0):
+        out = x
+        for i in range(intermediate, len(self.layers)):
+            out = self.layers[i](out)
         return out
 
 def Conv4():
@@ -153,7 +166,7 @@ class ClassificationNetwork(nn.Module):
         super(ClassificationNetwork, self).__init__()
         self.convnet = Conv6()
         num_ftrs = self.convnet.final_feat_dim
-        self.convnet.fc = nn.Linear(num_ftrs,64)
+        self.fc = nn.Linear(num_ftrs,64)
 
     def forward(self,inputs):
         outputs = self.convnet(inputs)
@@ -203,11 +216,18 @@ class ClassificationNetwork(nn.Module):
 
 
 class smallNet(nn.Module):
-    def __init__(self, flatten = True):
+    def __init__(self,mixup, flatten = True):
         super(smallNet,self).__init__()
         trunk = []
         for i in range(6):
-            indim = 6 if i == 0 else 64
+        
+            if i == 0:
+                if mixup:
+                    indim = 128
+                else:
+                    indim = 6
+            else:
+                indim = 64
             outdim = 64
             B = ConvBlock(indim, outdim, pool = ( i <4 ) ) #only pooling for fist 4 layers
             trunk.append(B)
@@ -216,7 +236,7 @@ class smallNet(nn.Module):
             trunk.append(Flatten())
 
         self.trunk = nn.Sequential(*trunk)
-        self.final_feat_dim = 1600
+        self.final_feat_dim = 1600 if not mixup else 256
 
     def forward(self,x):
         out = self.trunk(x)
@@ -262,14 +282,42 @@ class GNet(nn.Module):
         Deeper attention network do not bring in benifits
         So we use small network here
     '''
+    def getSquares(self, dim = 3, size = 84):
+    
+        patch_xl = []
+        patch_xr = []
+        patch_yl = []
+        patch_yr = []
+
+        # if args.Fang == 3:
+        #     point = [0,74,148,224]
+        point = list(range(0,size,size//args.Fang)) + [size]
+
+        for i in range(args.Fang):
+            for j in range(args.Fang):
+                patch_xl.append(point[i])
+                patch_xr.append(point[i+1])
+                patch_yl.append(point[j])
+                patch_yr.append(point[j+1])
+
+        fixSquare = torch.zeros(1,args.Fang*args.Fang,dim,size,size).float()
+        for i in range(args.Fang*args.Fang):
+            fixSquare[:,i,:,patch_xl[i]:patch_xr[i],patch_yl[i]:patch_yr[i]] = 1.00
+        fixSquare = fixSquare.cuda()
+
+        oneSquare = torch.ones(1,dim,size,size).float()
+        oneSquare = oneSquare.cuda()
+        
+        return fixSquare, oneSquare
+    
     def __init__(self):
         super(GNet, self).__init__()
         # self.ANet = weightNet()
         # self.BNet = weightNet()
-        self.attentionNet = smallNet()
+        self.attentionNet = smallNet(args.mixupLayer > 1)
 
         self.toWeight = nn.Sequential(
-                nn.Linear(1600,args.Fang*args.Fang),
+                nn.Linear(self.attentionNet.final_feat_dim,args.Fang*args.Fang),
                 # nn.ReLU(),
                 # nn.Linear(100,args.Fang*args.Fang),
                 # nn.Linear(1024,9),
@@ -285,23 +333,31 @@ class GNet(nn.Module):
             print('loading ',str(args.network))
             conv6 = ClassificationNetwork()
             conv6.load_state_dict(torch.load('models/'+str(args.network)+'.t7', map_location=lambda storage, loc: storage))
-            self.CNet.trunk.load_state_dict(conv6.convnet.trunk.state_dict())
+            self.CNet.load_state_dict(conv6.convnet.state_dict())
             # self.fc.load_state_dict(conv6.convnet.fc.state_dict())
-            self.fc.load_state_dict(conv6.convnet.fc.state_dict())
+            self.fc.load_state_dict(conv6.fc.state_dict())
 
         self.scale = nn.Parameter(torch.FloatTensor(1).fill_(1.0), requires_grad=True)
     
     def forward(self,A,B=1,fixSquare=1,oneSquare=1,mode='one'):
         # A,B :[batch,3,224,224] fixSquare:[batch,9,3,224,224] oneSquare:[batch,3,224,224]
         if mode == 'two':
+        
+        
+            A = self.CNet.embed(A)
+            B = self.CNet.embed(B)
+        
+        
             # Calculate 3*3 weight matrix
-            batchSize = A.size(0)
+            batchSize, dim, size, size = A.shape
             feature = self.attentionNet(torch.cat((A,B),1))
             # print('feature shape: ', feature.shape)
             weight = self.toWeight(feature) # [batch,3*3]
             
+            fixSquare, oneSquare = self.getSquares(dim, size)
+            
             weightSquare = weight.view(batchSize,args.Fang*args.Fang,1,1,1)
-            weightSquare = weightSquare.expand(batchSize,args.Fang*args.Fang,3,84,84)
+            weightSquare = weightSquare.expand(batchSize,args.Fang*args.Fang,dim,size,size)
             weightSquare = weightSquare * fixSquare # [batch,9,3,224,224]
             weightSquare = torch.sum(weightSquare,dim=1) # [batch,3,224,224]
 
@@ -502,12 +558,7 @@ def train_model(model,num_epochs=25):
 
     # if args.Fang == 3:
     #     point = [0,74,148,224]
-    if args.Fang == 3:
-        point = [0,28,56,84]
-    # elif args.Fang == 5:
-    #     point = [0,44,88,132,176,224]
-    # elif args.Fang == 7:
-    #     point = [0,32,64,96,128,160,192,224]
+    point = list(range(0,args.size, args.size//args.Fang)) + [args.size]
 
 
 
