@@ -34,7 +34,7 @@ class Options():
                             help='number of epoch to decay lr')
         parser.add_argument('--Fang', default=3,type=int,
                             help='number of block')
-        parser.add_argument('--epoch', default=600,type=int,
+        parser.add_argument('--epoch', default=200,type=int,
                             help='train epoch')
         parser.add_argument('--trainways', default=5,type=int,
                             help='number of class for one episode in training')

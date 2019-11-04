@@ -216,27 +216,26 @@ class ClassificationNetwork(nn.Module):
 
 
 class smallNet(nn.Module):
-    def __init__(self,mixup, flatten = True):
+    def __init__(self, flatten = True):
         super(smallNet,self).__init__()
         trunk = []
-        for i in range(6):
-        
+        for i in range(6 - args.mixupLayer):
             if i == 0:
-                if mixup:
+                if args.mixupLayer > 0:
                     indim = 128
                 else:
                     indim = 6
             else:
                 indim = 64
             outdim = 64
-            B = ConvBlock(indim, outdim, pool = ( i <4 ) ) #only pooling for fist 4 layers
+            B = ConvBlock(indim, outdim, pool = ( (i + args.mixupLayer) <4 ) ) #only pooling for fist 4 layers
             trunk.append(B)
 
         if flatten:
             trunk.append(Flatten())
 
         self.trunk = nn.Sequential(*trunk)
-        self.final_feat_dim = 1600 if not mixup else 256
+        self.final_feat_dim = 1600 
 
     def forward(self,x):
         out = self.trunk(x)
@@ -314,7 +313,7 @@ class GNet(nn.Module):
         super(GNet, self).__init__()
         # self.ANet = weightNet()
         # self.BNet = weightNet()
-        self.attentionNet = smallNet(args.mixupLayer > 1)
+        self.attentionNet = smallNet()
 
         self.toWeight = nn.Sequential(
                 nn.Linear(self.attentionNet.final_feat_dim,args.Fang*args.Fang),
@@ -344,8 +343,8 @@ class GNet(nn.Module):
         if mode == 'two':
         
         
-            A = self.CNet.embed(A)
-            B = self.CNet.embed(B)
+            A = self.CNet.embed(A, intermediate=args.mixupLayer)
+            B = self.CNet.embed(B, intermediate=args.mixupLayer)
         
         
             # Calculate 3*3 weight matrix
@@ -362,7 +361,7 @@ class GNet(nn.Module):
             weightSquare = torch.sum(weightSquare,dim=1) # [batch,3,224,224]
 
             C = weightSquare*A + (oneSquare - weightSquare) * B
-            Cfeature = self.CNet(C)
+            Cfeature = self.CNet(C, intermediate=args.mixupLayer)
             return Cfeature, weight, feature
 
         elif mode == 'one':
@@ -800,8 +799,8 @@ def train_model(model, logger, num_epochs=25):
                 phase+'_cls_accuracy': epoch_cls_accuracy,
             }
 
-            for tag, value in info.items():
-                logger.scalar_summary(tag, value, epoch+1)
+            # for tag, value in info.items():
+                # logger.scalar_summary(tag, value, epoch+1)
 
             # Logging
             logger.info("=========================================")
@@ -842,9 +841,10 @@ def train_model(model, logger, num_epochs=25):
 # .. to load your previously training model:
 #model.load_state_dict(torch.load('mytraining.pt'))
 def run():
+
     logger = get_logger(name=args.name_log)
     model = GNet()
-
+    print(args.tensorname)
 
     if args.GNet!='none':
         model.load_state_dict(torch.load('models/'+args.GNet+'.t7', map_location=lambda storage, loc: storage))
@@ -859,7 +859,7 @@ def run():
     model = model.cuda()
 
 
-    model = train_model(model, logger, num_epochs=120)    ##
+    model = train_model(model, logger, num_epochs=100)    ##
 
     # ... after training, save your model 
 
