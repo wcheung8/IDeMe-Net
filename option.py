@@ -6,11 +6,11 @@ class Options():
     def __init__(self):### 
         # Training settings
         parser = argparse.ArgumentParser(description='Tank Shot')
-        parser.add_argument('--LR', default=0.001,type=float,
+        parser.add_argument('--LR', default=1e-5,type=float,
                             help='Learning rate of the Encoder Network')
-        parser.add_argument('--clsLR', default=0.001,type=float,
+        parser.add_argument('--clsLR', default=1e-5,type=float,
                             help='Learning rate of the Encoder Network')
-        parser.add_argument('--batchSize', default=128,type=int,
+        parser.add_argument('--batchSize', default=64,type=int,
                             help='Batch Size')
         parser.add_argument('--nthreads', default=8,type=int,
                             help='threads num to load data')
@@ -34,7 +34,7 @@ class Options():
                             help='number of epoch to decay lr')
         parser.add_argument('--Fang', default=3,type=int,
                             help='number of block')
-        parser.add_argument('--epoch', default=200,type=int,
+        parser.add_argument('--epoch', default=600,type=int,
                             help='train epoch')
         parser.add_argument('--trainways', default=5,type=int,
                             help='number of class for one episode in training')

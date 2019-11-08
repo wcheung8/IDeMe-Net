@@ -23,6 +23,8 @@ from torch.optim import lr_scheduler
 import copy
 import time
 import math
+import matplotlib.pyplot as plt
+
 class Denormalize(object):
     def __init__(self, mean, std):
         self.mean = mean
@@ -588,7 +590,7 @@ def train_model(model, logger, num_epochs=25):
 
     best_model_wts = copy.deepcopy(model.state_dict())
     best_loss = 1000000000.0
-
+    best_acc = 0
     
     detransform = transforms.Compose([
             Denormalize(mu, sigma),
@@ -780,7 +782,8 @@ def train_model(model, logger, num_epochs=25):
                     loss_cls = clsCriterion(Ccls, ABReals)
                     if epoch!=0 and (args.fixCls==0):
                         optimizer_classifier.zero_grad()
-                        loss_cls.backward()
+                        loss_val.backward(retain_graph=True)
+                        # loss_cls.backward()
                         optimizer_classifier.step()
 
                     running_cls_loss += loss_cls.item()
@@ -814,6 +817,7 @@ def train_model(model, logger, num_epochs=25):
             # deep copy the model
             if phase == 'test' and epoch_loss < best_loss:
                 best_loss = epoch_loss
+                best_acc = epoch_accuracy
 
                 if torch.cuda.device_count() > 1:
                     best_model_wts = copy.deepcopy(model.module.state_dict())
@@ -832,6 +836,7 @@ def train_model(model, logger, num_epochs=25):
     print('Training complete in {:.0f}m {:.0f}s'.format(
         time_elapsed // 60, time_elapsed % 60))
     print('Best test Loss: {:4f}'.format(best_loss))
+    print('Best test acc: {:4f}'.format(best_acc))
     
     # load best model weights
     model.load_state_dict(best_model_wts)
@@ -846,9 +851,6 @@ def run():
     model = GNet()
     print(args.tensorname)
 
-    if args.GNet!='none':
-        model.load_state_dict(torch.load('models/'+args.GNet+'.t7', map_location=lambda storage, loc: storage))
-        print('loading ',args.GNet)
 
     # if torch.cuda.device_count() > 1:
         # print("Let's use", torch.cuda.device_count(), "GPUs!")
@@ -856,6 +858,9 @@ def run():
     if torch.cuda.device_count() > 0:
         model = nn.DataParallel(model)
 
+    if args.GNet!='none':
+        model.load_state_dict(torch.load('models/'+args.GNet+'.t7', map_location=lambda storage, loc: storage))
+        print('loading ',args.GNet)
     model = model.cuda()
 
 
