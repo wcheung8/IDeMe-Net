@@ -131,30 +131,30 @@ def Conv6():
 ######################################################################
 # Define the Embedding Network
 
-# class ClassificationNetwork(nn.Module):
-#     def __init__(self):
-#         super(ClassificationNetwork, self).__init__()
-#         self.convnet = torchvision.models.resnet18(pretrained=False)
-#         num_ftrs = self.convnet.fc.in_features
-#         self.convnet.fc = nn.Linear(num_ftrs,64)
-
-#     def forward(self,inputs):
-#         outputs = self.convnet(inputs)
-        
-#         return outputs
-
 class ClassificationNetwork(nn.Module):
     def __init__(self):
         super(ClassificationNetwork, self).__init__()
-        self.convnet = Conv6()
-        num_ftrs = self.convnet.final_feat_dim
-        self.fc = nn.Linear(num_ftrs,64)
+        self.convnet = torchvision.models.resnet18(pretrained=False)
+        num_ftrs = self.convnet.fc.in_features
+        self.convnet.fc = nn.Linear(num_ftrs,64)
 
     def forward(self,inputs):
         outputs = self.convnet(inputs)
-        outputs = self.fc(outputs)
         
         return outputs
+
+# class ClassificationNetwork(nn.Module):
+#     def __init__(self):
+#         super(ClassificationNetwork, self).__init__()
+#         self.convnet = Conv6()
+#         num_ftrs = self.convnet.final_feat_dim
+#         self.fc = nn.Linear(num_ftrs,64)
+#
+#     def forward(self,inputs):
+#         outputs = self.convnet(inputs)
+#         outputs = self.fc(outputs)
+#
+#         return outputs
 
 
 
