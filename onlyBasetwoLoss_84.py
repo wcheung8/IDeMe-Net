@@ -23,6 +23,7 @@ from torch.optim import lr_scheduler
 import copy
 import time
 import math
+from resnet import *
 
 from logger import get_logger
 
@@ -108,22 +109,35 @@ class ConvBlock(nn.Module):
 class ConvNet(nn.Module):
     def __init__(self, depth, flatten = True):
         super(ConvNet,self).__init__()
-        trunk = []
+        self.layers = []
         for i in range(depth):
             indim = 3 if i == 0 else 64
             outdim = 64
             B = ConvBlock(indim, outdim, pool = ( i <4 ) ) #only pooling for fist 4 layers
-            trunk.append(B)
+            self.layers.append(B.cuda())
 
+        for i, v in enumerate(self.layers):
+            setattr(self, str(i), v)
+            
         if flatten:
-            trunk.append(Flatten())
+            self.layers.append(Flatten().cuda())
 
-        self.trunk = nn.Sequential(*trunk)
         self.final_feat_dim = 1600
 
-    def forward(self,x):
-        out = self.trunk(x)
+    def embed(self,x,intermediate=0):
+        out = x
+        for i, layer in enumerate(self.layers):
+            if i == intermediate:
+                return out
+            out = layer(out)
         return out
+
+    def forward(self,x,intermediate=0):
+        out = x
+        for i in range(intermediate, len(self.layers)):
+            out = self.layers[i](out)
+        return out
+
 
 def Conv4():
     return ConvNet(4)
@@ -134,7 +148,10 @@ def Conv6():
 
 
 def weightNet():
-    return ConvNet(6)
+    if args.resnet == 1:
+        return ResNet18()
+    else:
+        return ConvNet(6)
 ##############################
 
 
@@ -164,10 +181,15 @@ def weightNet():
         
 #         return outputs
 
+
+
 class ClassificationNetwork(nn.Module):
     def __init__(self):
         super(ClassificationNetwork, self).__init__()
-        self.convnet = Conv6()
+        if args.resnet == 1:
+            self.convnet = ResNet18()
+        else:
+            self.convnet = Conv6()
         num_ftrs = self.convnet.final_feat_dim
         self.fc = nn.Linear(num_ftrs,64)
 
@@ -219,26 +241,83 @@ class ClassificationNetwork(nn.Module):
 #         x = x.view(x.size(0), -1)
 #         return x
 
+if args.resnet==0:
+    class smallNet(nn.Module):
+        def __init__(self, flatten = True):
+            super(smallNet,self).__init__()
+            trunk = []
+            for i in range(6 - args.mixupLayer):
+                if i == 0:
+                    if args.mixupLayer > 0:
+                        indim = 128
+                    else:
+                        indim = 6
+                else:
+                    indim = 64
+                outdim = 64
+                B = ConvBlock(indim, outdim, pool = ( (i + args.mixupLayer) <4 ) ) #only pooling for fist 4 layers
+                trunk.append(B)
 
-class smallNet(nn.Module):
-    def __init__(self, flatten = True):
-        super(smallNet,self).__init__()
-        trunk = []
-        for i in range(6):
-            indim = 6 if i == 0 else 64
-            outdim = 64
-            B = ConvBlock(indim, outdim, pool = ( i <4 ) ) #only pooling for fist 4 layers
-            trunk.append(B)
+            if flatten:
+                trunk.append(Flatten())
 
-        if flatten:
-            trunk.append(Flatten())
+            self.trunk = nn.Sequential(*trunk)
+            self.final_feat_dim = 1600 
 
-        self.trunk = nn.Sequential(*trunk)
-        self.final_feat_dim = 1600
+        def forward(self,x):
+            out = self.trunk(x)
+            return out
+else:
+    class smallNet(nn.Module):
+        def __init__(self):
+            super(smallNet, self).__init__()
 
-    def forward(self,x):
-        out = self.trunk(x)
-        return out
+            def conv_block(in_channels, out_channels):
+                return nn.Sequential(
+                    nn.Conv2d(in_channels, out_channels, 3, padding=1),
+                    nn.BatchNorm2d(out_channels),
+                    nn.ReLU(),
+                    nn.MaxPool2d(2)
+                )
+
+            if args.mixupLayer == 0:
+                input_size = 6 
+            elif args.mixupLayer == 1:
+                input_size = 128
+            elif args.mixupLayer == 2:
+                input_size = 256
+            elif args.mixupLayer == 3:
+                input_size = 512
+
+            # self.encoder = nn.Sequential(  # 6*224*224
+            #     conv_block(input_size, 32),  # 64*112*112
+            #     conv_block(32, 64),  # 64*56*56
+            #     conv_block(64, 64),  # 64*28*28
+            #     conv_block(64, 32),  # 64*14*14
+            #     conv_block(32, 16),  # 32*7*7
+            #     Flatten()  # 784
+            # )
+            self.encoder = nn.Sequential(  # 6*84*84
+                conv_block(input_size, 32),  # 64*42*42
+                conv_block(32, 32),  # 64*26*26
+                conv_block(32, 16),  # 64*13*13
+                Flatten()  # 784
+            )
+            print(self.encoder)
+
+            if args.mixupLayer == 0:
+                self.final_feat_dim = 1600
+            elif args.mixupLayer == 1:
+                self.final_feat_dim = 400
+            elif args.mixupLayer == 2:
+                self.final_feat_dim = 64
+            elif args.mixupLayer == 3:
+                self.final_feat_dim = 16
+
+        def forward(self, inputs):
+            outputs = self.encoder(inputs)
+            return outputs
+
 
 
 # class smallNet(nn.Module):
@@ -280,6 +359,38 @@ class GNet(nn.Module):
         Deeper attention network do not bring in benifits
         So we use small network here
     '''
+
+    def getSquares(self, dim = 3, size = 84):
+    
+        patch_xl = []
+        patch_xr = []
+        patch_yl = []
+        patch_yr = []
+
+        # if args.Fang == 3:
+        #     point = [0,74,148,224]
+        point = list(range(0,size,size//args.Fang)) + [size]
+
+        for i in range(args.Fang):
+            for j in range(args.Fang):
+                patch_xl.append(point[i])
+                patch_xr.append(point[i+1])
+                patch_yl.append(point[j])
+                patch_yr.append(point[j+1])
+
+        fixSquare = torch.zeros(1,args.Fang*args.Fang,dim,size,size).float()
+        for i in range(args.Fang*args.Fang):
+            fixSquare[:,i,:,patch_xl[i]:patch_xr[i],patch_yl[i]:patch_yr[i]] = 1.00
+        fixSquare = fixSquare.cuda()
+
+        oneSquare = torch.ones(1,dim,size,size).float()
+        oneSquare = oneSquare.cuda()
+        
+        return fixSquare, oneSquare
+
+
+
+
     def __init__(self):
         super(GNet, self).__init__()
         # self.ANet = weightNet()
@@ -287,7 +398,7 @@ class GNet(nn.Module):
         self.attentionNet = smallNet()
 
         self.toWeight = nn.Sequential(
-                nn.Linear(1600,args.Fang*args.Fang),
+                nn.Linear(self.attentionNet.final_feat_dim,args.Fang*args.Fang),
                 # nn.ReLU(),
                 # nn.Linear(100,args.Fang*args.Fang),
                 # nn.Linear(1024,9),
@@ -296,36 +407,63 @@ class GNet(nn.Module):
             )
 
         self.CNet = weightNet()
-        self.fc = nn.Linear(1600,64)
+        self.fc = nn.Linear(self.CNet.final_feat_dim,64)
 
 
         if str(args.network) != 'None':
             print('loading ',str(args.network))
             conv6 = ClassificationNetwork()
             conv6.load_state_dict(torch.load('models/'+str(args.network)+'.t7', map_location=lambda storage, loc: storage))
-            self.CNet.trunk.load_state_dict(conv6.convnet.trunk.state_dict())
+            self.CNet.load_state_dict(conv6.convnet.state_dict())
+            #self.CNet.trunk.load_state_dict(conv6.convnet.trunk.state_dict())
             # self.fc.load_state_dict(conv6.convnet.fc.state_dict())
             self.fc.load_state_dict(conv6.fc.state_dict())
+
+        if str(args.smallNet) != 'None':
+            print('loading ',str(args.smallNet))
+            small = ClassificationNetwork()
+            small.load_state_dict(torch.load('models/'+str(args.smallNet)+'.t7', map_location=lambda storage, loc: storage))
+            self.attentionNet.trunk.load_state_dict(small.convnet.trunk.state_dict())
+
 
         self.scale = nn.Parameter(torch.FloatTensor(1).fill_(1.0), requires_grad=True)
     
     def forward(self,A,B=1,fixSquare=1,oneSquare=1,mode='one'):
         # A,B :[batch,3,224,224] fixSquare:[batch,9,3,224,224] oneSquare:[batch,3,224,224]
         if mode == 'two':
-            # Calculate 3*3 weight matrix
-            batchSize = A.size(0)
-            feature = self.attentionNet(torch.cat((A,B),1))
-            # print('feature shape: ', feature.shape)
-            weight = self.toWeight(feature) # [batch,3*3]
-            
-            weightSquare = weight.view(batchSize,args.Fang*args.Fang,1,1,1)
-            weightSquare = weightSquare.expand(batchSize,args.Fang*args.Fang,3,84,84)
-            weightSquare = weightSquare * fixSquare # [batch,9,3,224,224]
-            weightSquare = torch.sum(weightSquare,dim=1) # [batch,3,224,224]
 
-            C = weightSquare*A + (oneSquare - weightSquare) * B
-            Cfeature = self.CNet(C)
-            return Cfeature, weight, feature
+            if args.simple_mix == 0:
+
+                A = self.CNet.embed(A, intermediate=args.mixupLayer)
+                B = self.CNet.embed(B, intermediate=args.mixupLayer)
+
+
+                # Calculate 3*3 weight matrix
+                batchSize, dim, size, size = A.shape
+                feature = self.attentionNet(torch.cat((A,B),1))
+                # print('feature shape: ', feature.shape)
+                weight = self.toWeight(feature) # [batch,3*3]
+
+                fixSquare, oneSquare = self.getSquares(dim, size)
+                
+                weightSquare = weight.view(batchSize,args.Fang*args.Fang,1,1,1)
+                weightSquare = weightSquare.expand(batchSize,args.Fang*args.Fang,dim,size,size)
+                weightSquare = weightSquare * fixSquare # [batch,9,3,224,224]
+                weightSquare = torch.sum(weightSquare,dim=1) # [batch,3,224,224]
+
+                C = weightSquare*A + (oneSquare - weightSquare) * B
+                Cfeature = self.CNet(C, intermediate=args.mixupLayer)
+                return Cfeature, weight, feature
+
+            else:
+
+                mix_weight = np.random.uniform(0.5,1)
+
+                C = mix_weight*A + (1 - mix_weight) * B
+                Cfeature = self.CNet(C, intermediate=args.mixupLayer)
+                return Cfeature, 0, 0
+
+
 
         elif mode == 'one':
             # Calculate feature
@@ -440,37 +578,62 @@ def iterateMix(supportImages,supportFeatures,supportBelongs,supportReals,ways, g
 
     dists = dists.transpose(1,0) # [ways,ways*unNum]
 
+
+
+
+
     AImages = torch.FloatTensor(ways*args.shots*(1+args.augnum),3,84,84)
     ABelongs = torch.LongTensor(ways*args.shots*(1+args.augnum),1)
     Reals = torch.LongTensor(ways*args.shots*(1+args.augnum),1)
 
     BImages = torch.FloatTensor(ways*args.shots*(1+args.augnum),3,84,84)
 
-    _, bh = torch.topk(dists,args.chooseNum,dim=1,largest=False)
 
-    for i in range(ways):
-        for j in range(args.shots):
 
-            AImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+0] = supportImages[i*args.shots+j]
-            ABelongs[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+0] = supportBelongs[i*args.shots+j]
-            Reals[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+0] = supportReals[i*args.shots+j]
 
-            BImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+0] = supportImages[i*args.shots+j]
+    if args.augnum == 0:
 
-            for k in range(args.augnum):
+        for i in range(ways):
+            for j in range(args.shots):
 
-                p = np.random.randint(0,2)
-                if p==0:
-                    AImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = torch.flip(supportImages[i*args.shots+j],[2])
-                else:
-                    AImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = supportImages[i*args.shots+j]
-                ABelongs[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = supportBelongs[i*args.shots+j]
-                Reals[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = supportReals[i*args.shots+j]
+                AImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+0] = supportImages[i*args.shots+j]
+                ABelongs[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+0] = supportBelongs[i*args.shots+j]
+                Reals[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+0] = supportReals[i*args.shots+j]
 
-                choose = np.random.randint(0,args.chooseNum)
-                BImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = image_datasets['test'].get_image(Gallery[bh[i][choose]])
-                # BImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = unImages[bh[i][choose]]
+                BImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+0] = supportImages[i*args.shots+j]
+
+    else:
+
+        _, bh = torch.topk(dists,args.chooseNum,dim=1,largest=False)
+
+        for i in range(ways):
+            for j in range(args.shots):
+
+                AImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+0] = supportImages[i*args.shots+j]
+                ABelongs[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+0] = supportBelongs[i*args.shots+j]
+                Reals[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+0] = supportReals[i*args.shots+j]
+
+                BImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+0] = supportImages[i*args.shots+j]
+
+                for k in range(args.augnum):
+
+                    p = np.random.randint(0,2)
+                    if p==0:
+                        AImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = torch.flip(supportImages[i*args.shots+j],[2])
+                    else:
+                        AImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = supportImages[i*args.shots+j]
+                    ABelongs[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = supportBelongs[i*args.shots+j]
+                    Reals[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = supportReals[i*args.shots+j]
+
+                    choose = np.random.randint(0,args.chooseNum)
+                    BImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = image_datasets['test'].get_image(Gallery[bh[i][choose]])
+                    # BImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = unImages[bh[i][choose]]
                 
+
+
+
+
+
     return AImages,BImages,ABelongs,Reals
 
 def batchModel(model,AInputs,requireGrad):
@@ -520,8 +683,9 @@ def train_model(model, logger, num_epochs=25):
 
     # if args.Fang == 3:
     #     point = [0,74,148,224]
-    if args.Fang == 3:
-        point = [0,28,56,84]
+    # if args.Fang == 3:
+    #     point = [0,28,56,84]
+    point = list(range(0,args.size, args.size//args.Fang)) + [args.size]
     # elif args.Fang == 5:
     #     point = [0,44,88,132,176,224]
     # elif args.Fang == 7:
@@ -598,8 +762,8 @@ def train_model(model, logger, num_epochs=25):
                     # {'params': GNet.toWeight.parameters(), 'lr':  args.LR}
                 # ], lr=args.LR*0.1)
 
-    Attention_lr_scheduler = lr_scheduler.StepLR(optimizer_attention, step_size=40, gamma=0.5)
-    Classifier_lr_scheduler = lr_scheduler.StepLR(optimizer_classifier, step_size=40, gamma=0.5)
+    Attention_lr_scheduler = lr_scheduler.StepLR(optimizer_attention, step_size=8, gamma=0.5)
+    Classifier_lr_scheduler = lr_scheduler.StepLR(optimizer_classifier, step_size=8, gamma=0.5)
     clsCriterion = nn.CrossEntropyLoss()
 
     ######################################################################
@@ -629,7 +793,7 @@ def train_model(model, logger, num_epochs=25):
             model.train(False) # To ban batchnorm
 
             running_loss = 0.0 
-            running_accuracy = 0
+            running_accuracy = []
             running_cls_loss = 0
             running_cls_accuracy= 0
 
@@ -669,6 +833,8 @@ def train_model(model, logger, num_epochs=25):
                                                                 image_datasets = image_datasets, \
                                                                 Gallery =Gallery, \
                                                                 args=args)
+
+
                 
 
                 Batch = (AInputs.size(0)+args.batchSize-1)//args.batchSize
@@ -713,10 +879,10 @@ def train_model(model, logger, num_epochs=25):
                         Weights = torch.cat((Weights,weight),dim=0)
                         Ccls = torch.cat((Ccls,_cls),dim=0)
 
-                Weights = Weights.transpose(1,0) # 9*Batch
+                # Weights = Weights.transpose(1,0) # 9*Batch
 
-                for k in range(args.Fang*args.Fang):
-                    allWeight[str(k)] = allWeight[str(k)] + Weights[k].view(-1).tolist()
+                # for k in range(args.Fang*args.Fang):
+                #     allWeight[str(k)] = allWeight[str(k)] + Weights[k].view(-1).tolist()
 
                 center = Cfeatures.view(ways,args.shots*(1+args.augnum),-1).mean(1) # [ways,512]
                 dists = euclidean_dist(testFeatures,center, model) # [ways*test_num,ways]
@@ -731,7 +897,8 @@ def train_model(model, logger, num_epochs=25):
 
                 # statistics
                 running_loss += loss_val.item()
-                running_accuracy += acc_val.item()
+                # running_accuracy += acc_val.item()
+                running_accuracy += [acc_val.item()]
 
                 # backward + optimize only if in training phase
 
@@ -748,17 +915,23 @@ def train_model(model, logger, num_epochs=25):
                     ABReals = ABReals.view(ABReals.size(0)).cuda()
                     loss_cls = clsCriterion(Ccls, ABReals)
                     if epoch!=0 and (args.fixCls==0):
-                        optimizer_classifier.zero_grad()
-                        loss_cls.backward()
+                        # optimizer_classifier.zero_grad()
+                        # loss_cls.backward()
+                        # optimizer_classifier.step()
                         optimizer_classifier.step()
+                        optimizer_classifier.zero_grad()
+
 
                     running_cls_loss += loss_cls.item()
                     running_cls_accuracy += torch.eq(preds,ABReals).float().mean()
 
             epoch_loss = running_loss / (Times*1.0)
-            epoch_accuracy = running_accuracy / (Times*1.0)
+            # epoch_accuracy = running_accuracy / (Times*1.0)
             epoch_cls_loss = running_cls_loss / (Times*1.0)
             epoch_cls_accuracy = running_cls_accuracy / (Times*1.0)
+
+            epoch_accuracy = np.mean(running_accuracy)
+            epoch_accuracy_int = 1.96*np.std(running_accuracy)/np.sqrt(Times*1.0)
 
 
             info = {
@@ -784,6 +957,7 @@ def train_model(model, logger, num_epochs=25):
             logger.info("=========================================")
             logger.info("loss: {0:.4f};".format(epoch_loss))
             logger.info("accuracy: {0:.4f};".format(epoch_accuracy))
+            logger.info("accuracy_int: {0:.5f};".format(epoch_accuracy_int))
             logger.info("_cls_loss: {0:.4f};".format(epoch_cls_loss))
             logger.info("_cls_accuracy: {0:.4f};".format(epoch_cls_accuracy))
 
@@ -822,19 +996,20 @@ def run():
     model = GNet()
 
 
-    if args.GNet!='none':
-        model.load_state_dict(torch.load('models/'+args.GNet+'.t7', map_location=lambda storage, loc: storage))
-        print('loading ',args.GNet)
-
     # if torch.cuda.device_count() > 1:
         # print("Let's use", torch.cuda.device_count(), "GPUs!")
         # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
     if torch.cuda.device_count() > 0:
         model = nn.DataParallel(model)
 
+    if args.GNet!='none':
+        print('loading ',args.GNet)
+        model.load_state_dict(torch.load('models/'+args.GNet+'.t7', map_location=lambda storage, loc: storage))
+        
+
     model = model.cuda()
 
-    model = train_model(model, logger, num_epochs=120)
+    model = train_model(model, logger, num_epochs=40)
     ##
 
     # ... after training, save your model 
