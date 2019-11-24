@@ -25,6 +25,7 @@ pip install gdown
 pip install tensorflow
 pip install scipy
 pip install opencv-python
+pip install pathlib
 
 # to use jupyter notebook
 conda install jupyter
