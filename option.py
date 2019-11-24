@@ -52,6 +52,24 @@ class Options():
                             help='number of choosing')
         parser.add_argument('--name_log', default='',type=str,
                             help='name of the log file')
+        parser.add_argument('--smallNet', default='None',type=str,
+                            help='load network.t7')
+
+        parser.add_argument('--size', default=84,type=int,
+                            help='number of choosing')
+        parser.add_argument('--mixupLayer', default=0,type=int,
+                            help='number of choosing')
+        parser.add_argument('--resnet', default=0,type=int,
+                            help='whether resnet18 backbone')
+        parser.add_argument('--simple_mix', default=0,type=int,
+                            help='whether resnet18 backbone')
+        parser.add_argument('--inner_aug', default=0,type=int,
+                            help='whether resnet18 backbone')
+        parser.add_argument('--inner_alpha', default=1,type=float,
+                            help='whether resnet18 backbone')
+        parser.add_argument('--classifier_epoch', default=30,type=int,
+                            help='whether resnet18 backbone')
+
 
         self.parser = parser
 
