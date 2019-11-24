@@ -1,0 +1,1 @@
+python onlyBasetwoLoss_84.py --network pretrainedResnet18_84_10 --shots 5 --augnum 5 --fixCls 1 --fixAttention 0 --tensorname l3_res18 --chooseNum 30 --mixupLayer 3 --resnet 1 --name_log l3_res18
