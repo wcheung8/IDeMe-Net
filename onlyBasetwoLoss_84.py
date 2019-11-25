@@ -2,8 +2,9 @@ import os
 import numpy as np
 import argparse
 import torch
+
 torch.multiprocessing.freeze_support()
-torch.set_num_threads(1)    
+torch.set_num_threads(1)
 import torch.optim as optim
 from tqdm import *
 from torch.autograd import Variable
@@ -18,6 +19,7 @@ import torchvision
 from option import Options
 from datasets import oneShotBaseCls_84 as oneShotBaseCls
 from logger import get_logger
+
 args = Options().parse()
 from torch.optim import lr_scheduler
 import copy
@@ -25,15 +27,17 @@ import time
 import math
 import matplotlib.pyplot as plt
 
+
 class Denormalize(object):
     def __init__(self, mean, std):
         self.mean = mean
         self.std = std
-    
+
     def __call__(self, tensor):
         for t, m, s in zip(tensor, self.mean, self.std):
             t.mul_(s).add_(m)
         return tensor
+
 
 class Clip(object):
     def __init__(self):
@@ -41,17 +45,19 @@ class Clip(object):
 
     def __call__(self, tensor):
         t = tensor.clone()
-        t[t>1] = 1
-        t[t<0] = 0
+        t[t > 1] = 1
+        t[t < 0] = 0
         return t
 
-def plotPicture(image,name,detransform):
+
+def plotPicture(image, name, detransform):
     fig = plt.figure()
-    ax = fig.add_subplot(111)  
+    ax = fig.add_subplot(111)
     A = image.clone()
     ax.imshow(detransform(A))
-    fig.savefig('picture/'+str(name)+'.png')
+    fig.savefig('picture/' + str(name) + '.png')
     plt.close(fig)
+
 
 ######################################################################
 # Define the Embedding Network
@@ -66,8 +72,8 @@ class Flatten(nn.Module):
 def init_layer(L):
     # Initialization using fan-in
     if isinstance(L, nn.Conv2d):
-        n = L.kernel_size[0]*L.kernel_size[1]*L.out_channels
-        L.weight.data.normal_(0,math.sqrt(2.0/float(n)))
+        n = L.kernel_size[0] * L.kernel_size[1] * L.out_channels
+        L.weight.data.normal_(0, math.sqrt(2.0 / float(n)))
     elif isinstance(L, nn.BatchNorm2d):
         L.weight.data.fill_(1)
         L.bias.data.fill_(0)
@@ -75,22 +81,23 @@ def init_layer(L):
 
 # Simple Conv Block
 class ConvBlock(nn.Module):
-    maml = False #Default
-    def __init__(self, indim, outdim, pool = True, padding = 1):
+    maml = False  # Default
+
+    def __init__(self, indim, outdim, pool=True, padding=1):
         super(ConvBlock, self).__init__()
-        self.indim  = indim
+        self.indim = indim
         self.outdim = outdim
         if self.maml:
-            self.C      = Conv2d_fw(indim, outdim, 3, padding = padding)
-            self.BN     = BatchNorm2d_fw(outdim)
+            self.C = Conv2d_fw(indim, outdim, 3, padding=padding)
+            self.BN = BatchNorm2d_fw(outdim)
         else:
-            self.C      = nn.Conv2d(indim, outdim, 3, padding= padding)
-            self.BN     = nn.BatchNorm2d(outdim)
-        self.relu   = nn.ReLU(inplace=True)
+            self.C = nn.Conv2d(indim, outdim, 3, padding=padding)
+            self.BN = nn.BatchNorm2d(outdim)
+        self.relu = nn.ReLU(inplace=True)
 
         self.parametrized_layers = [self.C, self.BN, self.relu]
         if pool:
-            self.pool   = nn.MaxPool2d(2)
+            self.pool = nn.MaxPool2d(2)
             self.parametrized_layers.append(self.pool)
 
         for layer in self.parametrized_layers:
@@ -98,44 +105,43 @@ class ConvBlock(nn.Module):
 
         self.trunk = nn.Sequential(*self.parametrized_layers)
 
-
-    def forward(self,x):
+    def forward(self, x):
         out = self.trunk(x)
         return out
 
 
-
 class ConvNet(nn.Module):
-    def __init__(self, depth, flatten = True):
-        super(ConvNet,self).__init__()
+    def __init__(self, depth, flatten=True):
+        super(ConvNet, self).__init__()
         self.layers = []
         for i in range(depth):
             indim = 3 if i == 0 else 64
             outdim = 64
-            B = ConvBlock(indim, outdim, pool = ( i <4 ) ) #only pooling for fist 4 layers
+            B = ConvBlock(indim, outdim, pool=(i < 4))  # only pooling for fist 4 layers
             self.layers.append(B.cuda())
 
         for i, v in enumerate(self.layers):
             setattr(self, str(i), v)
-            
+
         if flatten:
             self.layers.append(Flatten().cuda())
 
         self.final_feat_dim = 1600
 
-    def embed(self,x,intermediate=0):
+    def embed(self, x, intermediate=0):
         out = x
         for i, layer in enumerate(self.layers):
             if i == intermediate:
                 return out
             out = layer(out)
         return out
-        
-    def forward(self,x,intermediate=0):
+
+    def forward(self, x, intermediate=0):
         out = x
         for i in range(intermediate, len(self.layers)):
             out = self.layers[i](out)
         return out
+
 
 def Conv4():
     return ConvNet(4)
@@ -147,6 +153,8 @@ def Conv6():
 
 def weightNet():
     return ConvNet(6)
+
+
 ##############################
 
 
@@ -160,7 +168,7 @@ def weightNet():
 
 #     def forward(self,inputs):
 #         outputs = self.convnet(inputs)
-        
+
 #         return outputs
 
 class ClassificationNetwork(nn.Module):
@@ -168,13 +176,14 @@ class ClassificationNetwork(nn.Module):
         super(ClassificationNetwork, self).__init__()
         self.convnet = Conv6()
         num_ftrs = self.convnet.final_feat_dim
-        self.fc = nn.Linear(num_ftrs,64)
+        self.fc = nn.Linear(num_ftrs, 64)
 
-    def forward(self,inputs):
+    def forward(self, inputs):
         outputs = self.convnet(inputs)
-        #outputs = self.fc(outputs)
-        
+        # outputs = self.fc(outputs)
+
         return outputs
+
 
 # resnet18 without fc layer
 # class weightNet(nn.Module):
@@ -217,29 +226,51 @@ class ClassificationNetwork(nn.Module):
 #         return x
 
 
+# class smallNet(nn.Module):
+#     def __init__(self, flatten=True):
+#         super(smallNet, self).__init__()
+#         self.layers = []
+#         for i in range(6):
+#             indim = 6 if i == 0 else 64
+#             outdim = 64
+#             B = ConvBlock(indim, outdim, pool=(i < 4))  # only pooling for fist 4 layers
+#             self.layers.append(B.cuda())
+#
+#         if flatten:
+#             self.layers.append(Flatten())
+#         for i, v in enumerate(self.layers):
+#             setattr(self, str(i), v)
+#         self.final_feat_dim = 1600
+#
+#     def forward(self, x, intermediate=0):
+#         out = x
+#         for i in range(intermediate, len(self.layers)):
+#             out = self.layers[i](out)
+#         return out
+
 class smallNet(nn.Module):
-    def __init__(self, flatten = True):
-        super(smallNet,self).__init__()
+    def __init__(self, mixupLayer, flatten=True):
+        super(smallNet, self).__init__()
         trunk = []
-        for i in range(6 - args.mixupLayer):
+        for i in range(6 - mixupLayer):
             if i == 0:
-                if args.mixupLayer > 0:
+                if mixupLayer > 0:
                     indim = 128
                 else:
                     indim = 6
             else:
                 indim = 64
             outdim = 64
-            B = ConvBlock(indim, outdim, pool = ( (i + args.mixupLayer) <4 ) ) #only pooling for fist 4 layers
+            B = ConvBlock(indim, outdim, pool=((i + mixupLayer) < 4))  # only pooling for fist 4 layers
             trunk.append(B)
 
         if flatten:
             trunk.append(Flatten())
 
         self.trunk = nn.Sequential(*trunk)
-        self.final_feat_dim = 1600 
+        self.final_feat_dim = 1600
 
-    def forward(self,x):
+    def forward(self, x):
         out = self.trunk(x)
         return out
 
@@ -272,7 +303,7 @@ class smallNet(nn.Module):
 #         outputs: Batchsize*100
 #         """
 #         outputs = self.encoder(inputs)
-        
+
 #         return outputs
 
 
@@ -283,8 +314,9 @@ class GNet(nn.Module):
         Deeper attention network do not bring in benifits
         So we use small network here
     '''
-    def getSquares(self, dim = 3, size = 84):
-    
+
+    def getSquares(self, dim=3, size=84):
+
         patch_xl = []
         patch_xr = []
         patch_yl = []
@@ -292,77 +324,77 @@ class GNet(nn.Module):
 
         # if args.Fang == 3:
         #     point = [0,74,148,224]
-        point = list(range(0,size,size//args.Fang)) + [size]
+        point = list(range(0, size, size // args.Fang)) + [size]
 
         for i in range(args.Fang):
             for j in range(args.Fang):
                 patch_xl.append(point[i])
-                patch_xr.append(point[i+1])
+                patch_xr.append(point[i + 1])
                 patch_yl.append(point[j])
-                patch_yr.append(point[j+1])
+                patch_yr.append(point[j + 1])
 
-        fixSquare = torch.zeros(1,args.Fang*args.Fang,dim,size,size).float()
-        for i in range(args.Fang*args.Fang):
-            fixSquare[:,i,:,patch_xl[i]:patch_xr[i],patch_yl[i]:patch_yr[i]] = 1.00
+        fixSquare = torch.zeros(1, args.Fang * args.Fang, dim, size, size).float()
+        for i in range(args.Fang * args.Fang):
+            fixSquare[:, i, :, patch_xl[i]:patch_xr[i], patch_yl[i]:patch_yr[i]] = 1.00
         fixSquare = fixSquare.cuda()
 
-        oneSquare = torch.ones(1,dim,size,size).float()
+        oneSquare = torch.ones(1, dim, size, size).float()
         oneSquare = oneSquare.cuda()
-        
+
         return fixSquare, oneSquare
-    
+
     def __init__(self):
         super(GNet, self).__init__()
         # self.ANet = weightNet()
         # self.BNet = weightNet()
-        self.attentionNet = smallNet()
-
+        # self.attentionNet = smallNet()
+        self.attentionNets = [smallNet(mixupLayer=i) for i in range(6)]
         self.toWeight = nn.Sequential(
-                nn.Linear(self.attentionNet.final_feat_dim,args.Fang*args.Fang),
-                # nn.ReLU(),
-                # nn.Linear(100,args.Fang*args.Fang),
-                # nn.Linear(1024,9),
-                # nn.Tanh(),
-                # nn.ReLU(),
-            )
+            nn.Linear(self.attentionNets[0].final_feat_dim, args.Fang * args.Fang),
+            # nn.ReLU(),
+            # nn.Linear(100,args.Fang*args.Fang),
+            # nn.Linear(1024,9),
+            # nn.Tanh(),
+            # nn.ReLU(),
+        )
 
         self.CNet = weightNet()
-        self.fc = nn.Linear(1600,64)
-
+        self.fc = nn.Linear(1600, 64)
 
         if str(args.network) != 'None':
-            print('loading ',str(args.network))
+            print('loading ', str(args.network))
             conv6 = ClassificationNetwork()
-            conv6.load_state_dict(torch.load('models/'+str(args.network)+'.t7', map_location=lambda storage, loc: storage))
+            conv6.load_state_dict(torch.load('models/' + str(args.network) + '.t7', map_location=lambda storage, loc: storage))
             self.CNet.load_state_dict(conv6.convnet.state_dict())
             # self.fc.load_state_dict(conv6.convnet.fc.state_dict())
             self.fc.load_state_dict(conv6.fc.state_dict())
 
         self.scale = nn.Parameter(torch.FloatTensor(1).fill_(1.0), requires_grad=True)
-    
-    def forward(self,A,B=1,fixSquare=1,oneSquare=1,mode='one'):
+
+    def forward(self, A, B=1, fixSquare=1, oneSquare=1, mode='one'):
         # A,B :[batch,3,224,224] fixSquare:[batch,9,3,224,224] oneSquare:[batch,3,224,224]
         if mode == 'two':
-        
-        
+            import random
+            args.mixupLayer = random.randint(0, 5)
             A = self.CNet.embed(A, intermediate=args.mixupLayer)
             B = self.CNet.embed(B, intermediate=args.mixupLayer)
-        
-        
+
             # Calculate 3*3 weight matrix
             batchSize, dim, size, size = A.shape
-            feature = self.attentionNet(torch.cat((A,B),1))
-            # print('feature shape: ', feature.shape)
-            weight = self.toWeight(feature) # [batch,3*3]
-            
-            fixSquare, oneSquare = self.getSquares(dim, size)
-            
-            weightSquare = weight.view(batchSize,args.Fang*args.Fang,1,1,1)
-            weightSquare = weightSquare.expand(batchSize,args.Fang*args.Fang,dim,size,size)
-            weightSquare = weightSquare * fixSquare # [batch,9,3,224,224]
-            weightSquare = torch.sum(weightSquare,dim=1) # [batch,3,224,224]
+            feature = self.attentionNets[args.mixupLayer](torch.cat((A, B), 1))
 
-            C = weightSquare*A + (oneSquare - weightSquare) * B
+            print('feature shape: ', feature.shape)
+            weight = self.toWeight(feature)  # [batch,3*3]
+            weight = torch.ones(list(weight.shape)).cuda()
+
+            fixSquare, oneSquare = self.getSquares(dim, size)
+
+            weightSquare = weight.view(batchSize, args.Fang * args.Fang, 1, 1, 1)
+            weightSquare = weightSquare.expand(batchSize, args.Fang * args.Fang, dim, size, size)
+            weightSquare = weightSquare * fixSquare  # [batch,9,3,224,224]
+            weightSquare = torch.sum(weightSquare, dim=1)  # [batch,3,224,224]
+
+            C = weightSquare * A + (oneSquare - weightSquare) * B
             Cfeature = self.CNet(C, intermediate=args.mixupLayer)
             return Cfeature, weight, feature
 
@@ -408,7 +440,7 @@ class GNet(nn.Module):
 #         self.fc.load_state_dict(resnet.convnet.fc.state_dict())
 
 #         self.scale = nn.Parameter(torch.FloatTensor(1).fill_(1.0), requires_grad=True)
-    
+
 #     def forward(self,A,B=1,fixSquare=1,oneSquare=1,mode='one'):
 #         # A,B :[batch,3,224,224] fixSquare:[batch,9,3,224,224] oneSquare:[batch,3,224,224]
 #         if mode == 'two':
@@ -416,7 +448,7 @@ class GNet(nn.Module):
 #             batchSize = A.size(0)
 #             feature = self.attentionNet(torch.cat((A,B),1))
 #             weight = self.toWeight(feature) # [batch,3*3]
-            
+
 #             weightSquare = weight.view(batchSize,args.Fang*args.Fang,1,1,1)
 #             weightSquare = weightSquare.expand(batchSize,args.Fang*args.Fang,3,224,224)
 #             weightSquare = weightSquare * fixSquare # [batch,9,3,224,224]
@@ -437,7 +469,6 @@ class GNet(nn.Module):
 #             return Cfeature
 
 
-
 def euclidean_dist(x, y, model):
     # x: N x D
     # y: M x D
@@ -452,9 +483,10 @@ def euclidean_dist(x, y, model):
     # To accelerate training, but observe little effect
     A = model.module.scale
 
-    return (torch.pow(x - y, 2)*A).sum(2)
+    return (torch.pow(x - y, 2) * A).sum(2)
 
-def iterateMix(supportImages,supportFeatures,supportBelongs,supportReals,ways, galleryFeature, model, image_datasets, Gallery, args):
+
+def iterateMix(supportImages, supportFeatures, supportBelongs, supportReals, ways, galleryFeature, model, image_datasets, Gallery, args):
     '''
         Inputs:
             supportImages ways,shots,3,224,224
@@ -465,88 +497,88 @@ def iterateMix(supportImages,supportFeatures,supportBelongs,supportReals,ways, g
             Reals: The label in [0,63] # Just for debug
     '''
     ways = int(ways)
-    center = supportFeatures.view([int(ways),args.shots,-1]).mean(1)
+    center = supportFeatures.view([int(ways), args.shots, -1]).mean(1)
     # dists = euclidean_dist(galleryFeature,center) # [ways*unNum,ways]
-    Num = int(galleryFeature.size(0)/10)
+    Num = int(galleryFeature.size(0) / 10)
     with torch.no_grad():
-        dists = euclidean_dist(galleryFeature[:Num].cuda(),center, model)
-        for i in range(1,10):
-            _end = (i+1)*Num
-            if i==9:
+        dists = euclidean_dist(galleryFeature[:Num].cuda(), center, model)
+        for i in range(1, 10):
+            _end = (i + 1) * Num
+            if i == 9:
                 _end = galleryFeature.size(0)
-            dist = euclidean_dist(galleryFeature[i*Num:_end].cuda(),center, model)
-            dists = torch.cat((dists,dist),dim=0)
+            dist = euclidean_dist(galleryFeature[i * Num:_end].cuda(), center, model)
+            dists = torch.cat((dists, dist), dim=0)
 
-    dists = dists.transpose(1,0) # [ways,ways*unNum]
+    dists = dists.transpose(1, 0)  # [ways,ways*unNum]
 
-    AImages = torch.FloatTensor(int(ways*args.shots*(1+args.augnum)),3,84,84)
-    ABelongs = torch.LongTensor(int(ways*args.shots*(1+args.augnum)),1)
-    Reals = torch.LongTensor(int(ways*args.shots*(1+args.augnum)),1)
+    AImages = torch.FloatTensor(int(ways * args.shots * (1 + args.augnum)), 3, 84, 84)
+    ABelongs = torch.LongTensor(int(ways * args.shots * (1 + args.augnum)), 1)
+    Reals = torch.LongTensor(int(ways * args.shots * (1 + args.augnum)), 1)
 
-    BImages = torch.FloatTensor(int(ways*args.shots*(1+args.augnum)),3,84,84)
+    BImages = torch.FloatTensor(int(ways * args.shots * (1 + args.augnum)), 3, 84, 84)
 
-    _, bh = torch.topk(dists,args.chooseNum,dim=1,largest=False)
+    _, bh = torch.topk(dists, args.chooseNum, dim=1, largest=False)
 
     for i in range(ways):
         for j in range(args.shots):
 
-            AImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+0] = supportImages[i*args.shots+j]
-            ABelongs[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+0] = supportBelongs[i*args.shots+j]
-            Reals[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+0] = supportReals[i*args.shots+j]
+            AImages[i * args.shots * (1 + args.augnum) + j * (args.augnum + 1) + 0] = supportImages[i * args.shots + j]
+            ABelongs[i * args.shots * (1 + args.augnum) + j * (args.augnum + 1) + 0] = supportBelongs[i * args.shots + j]
+            Reals[i * args.shots * (1 + args.augnum) + j * (args.augnum + 1) + 0] = supportReals[i * args.shots + j]
 
-            BImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+0] = supportImages[i*args.shots+j]
+            BImages[i * args.shots * (1 + args.augnum) + j * (args.augnum + 1) + 0] = supportImages[i * args.shots + j]
 
             for k in range(args.augnum):
 
-                p = np.random.randint(0,2)
-                if p==0:
-                    AImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = torch.flip(supportImages[i*args.shots+j],[2])
+                p = np.random.randint(0, 2)
+                if p == 0:
+                    AImages[i * args.shots * (1 + args.augnum) + j * (args.augnum + 1) + 1 + k] = torch.flip(supportImages[i * args.shots + j], [2])
                 else:
-                    AImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = supportImages[i*args.shots+j]
-                ABelongs[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = supportBelongs[i*args.shots+j]
-                Reals[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = supportReals[i*args.shots+j]
+                    AImages[i * args.shots * (1 + args.augnum) + j * (args.augnum + 1) + 1 + k] = supportImages[i * args.shots + j]
+                ABelongs[i * args.shots * (1 + args.augnum) + j * (args.augnum + 1) + 1 + k] = supportBelongs[i * args.shots + j]
+                Reals[i * args.shots * (1 + args.augnum) + j * (args.augnum + 1) + 1 + k] = supportReals[i * args.shots + j]
 
-                choose = np.random.randint(0,args.chooseNum)
-                BImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = image_datasets['test'].get_image(Gallery[bh[i][choose]])
+                choose = np.random.randint(0, args.chooseNum)
+                BImages[i * args.shots * (1 + args.augnum) + j * (args.augnum + 1) + 1 + k] = image_datasets['test'].get_image(Gallery[bh[i][choose]])
                 # BImages[i*args.shots*(1+args.augnum)+j*(args.augnum+1)+1+k] = unImages[bh[i][choose]]
-                
-    return AImages,BImages,ABelongs,Reals
 
-def batchModel(model,AInputs,requireGrad):
-    Batch = (AInputs.size(0)+args.batchSize-1)//args.batchSize
+    return AImages, BImages, ABelongs, Reals
+
+
+def batchModel(model, AInputs, requireGrad):
+    Batch = (AInputs.size(0) + args.batchSize - 1) // args.batchSize
     First = True
     Cfeatures = 1
 
-
     for b in range(Batch):
-        if b<Batch-1:
-            midFeature = model(Variable(AInputs[b*args.batchSize:(b+1)*args.batchSize].cuda(),requires_grad=requireGrad))
+        if b < Batch - 1:
+            midFeature = model(Variable(AInputs[b * args.batchSize:(b + 1) * args.batchSize].cuda(), requires_grad=requireGrad))
         else:
-            midFeature = model(Variable(AInputs[b*args.batchSize:AInputs.size(0)].cuda(),requires_grad=requireGrad))
+            midFeature = model(Variable(AInputs[b * args.batchSize:AInputs.size(0)].cuda(), requires_grad=requireGrad))
 
         if First:
             First = False
             Cfeatures = midFeature
         else:
-            Cfeatures = torch.cat((Cfeatures,midFeature),dim=0)
+            Cfeatures = torch.cat((Cfeatures, midFeature), dim=0)
 
     return Cfeatures
 
-def train_model(model, logger, num_epochs=25):    
+
+def train_model(model, logger, num_epochs=25):
     rootdir = os.getcwd()
 
     args = Options().parse()
 
     image_datasets = {}
 
-    image_datasets = {x: oneShotBaseCls.miniImagenetOneshotDataset(type=x,ways= (args.trainways if x=='train' else args.ways),shots=args.shots,test_num=args.test_num,epoch=args.epoch,galleryNum=args.galleryNum)
-                      for x in ['train', 'val','test']}
-
+    image_datasets = {x: oneShotBaseCls.miniImagenetOneshotDataset(type=x, ways=(args.trainways if x == 'train' else args.ways), shots=args.shots, test_num=args.test_num, epoch=args.epoch, galleryNum=args.galleryNum)
+                      for x in ['train', 'val', 'test']}
 
     dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=1,
-                                                 shuffle=(x=='train'), num_workers=args.nthreads)
-                  for x in ['train', 'val','test']}
-    dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'val','test']}
+                                                  shuffle=(x == 'train'), num_workers=args.nthreads)
+                   for x in ['train', 'val', 'test']}
+    dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'val', 'test']}
 
     ######################################################################
     # Weight matrix pre-process
@@ -558,26 +590,24 @@ def train_model(model, logger, num_epochs=25):
 
     # if args.Fang == 3:
     #     point = [0,74,148,224]
-    point = list(range(0,args.size, args.size//args.Fang)) + [args.size]
-
-
+    point = list(range(0, args.size, args.size // args.Fang)) + [args.size]
 
     for i in range(args.Fang):
         for j in range(args.Fang):
             patch_xl.append(point[i])
-            patch_xr.append(point[i+1])
+            patch_xr.append(point[i + 1])
             patch_yl.append(point[j])
-            patch_yr.append(point[j+1])
+            patch_yr.append(point[j + 1])
 
-    fixSquare = torch.zeros(1,args.Fang*args.Fang,3,84,84).float()
-    for i in range(args.Fang*args.Fang):
-        fixSquare[:,i,:,patch_xl[i]:patch_xr[i],patch_yl[i]:patch_yr[i]] = 1.00
+    fixSquare = torch.zeros(1, args.Fang * args.Fang, 3, 84, 84).float()
+    for i in range(args.Fang * args.Fang):
+        fixSquare[:, i, :, patch_xl[i]:patch_xr[i], patch_yl[i]:patch_yr[i]] = 1.00
     fixSquare = fixSquare.cuda()
 
-    oneSquare = torch.ones(1,3,84,84).float()
+    oneSquare = torch.ones(1, 3, 84, 84).float()
     oneSquare = oneSquare.cuda()
     ######################################################################
-    #plot related
+    # plot related
     import matplotlib
     matplotlib.use('agg')
     import matplotlib.pyplot as plt
@@ -591,45 +621,45 @@ def train_model(model, logger, num_epochs=25):
     best_model_wts = copy.deepcopy(model.state_dict())
     best_loss = 1000000000.0
     best_acc = 0
-    
+
     detransform = transforms.Compose([
-            Denormalize(mu, sigma),
-            Clip(),
-            transforms.ToPILImage(),
-        ])
+        Denormalize(mu, sigma),
+        Clip(),
+        transforms.ToPILImage(),
+    ])
 
     #############################################
-    #Define the optimizer
+    # Define the optimizer
 
     # if torch.cuda.device_count() > 1:  
     if args.scratch == 0:
         optimizer_attention = torch.optim.Adam([
-                    {'params': model.module.attentionNet.parameters()},
-                    {'params': model.module.toWeight.parameters(), 'lr':  args.LR}
-                ], lr=args.LR) # 0.001
+            {'params': model.module.attentionNet.parameters()},
+            {'params': model.module.toWeight.parameters(), 'lr': args.LR}
+        ], lr=args.LR)  # 0.001
         optimizer_classifier = torch.optim.Adam([
-                    {'params': model.module.CNet.parameters(),'lr': args.clsLR*0.1},
-                    {'params': model.module.fc.parameters(), 'lr':  args.clsLR}
-                ]) # 0.00003
+            {'params': model.module.CNet.parameters(), 'lr': args.clsLR * 0.1},
+            {'params': model.module.fc.parameters(), 'lr': args.clsLR}
+        ])  # 0.00003
         optimizer_scale = torch.optim.Adam([
-                    {'params': model.module.scale}
-                ], lr=args.LR) # 0.001
+            {'params': model.module.scale}
+        ], lr=args.LR)  # 0.001
     else:
         optimizer_attention = torch.optim.Adam([
-                    {'params': model.module.ANet.parameters()},
-                    {'params': model.module.BNet.parameters()},
-                    {'params': model.module.toWeight.parameters()}
-                ], lr=args.LR)
+            {'params': model.module.ANet.parameters()},
+            {'params': model.module.BNet.parameters()},
+            {'params': model.module.toWeight.parameters()}
+        ], lr=args.LR)
         optimizer_classifier = torch.optim.Adam([
-                    {'params': model.module.CNet.parameters()},
-                    {'params': model.module.fc.parameters()}
-                ], lr=args.LR)
+            {'params': model.module.CNet.parameters()},
+            {'params': model.module.fc.parameters()}
+        ], lr=args.LR)
 
     # else:
-        # optimizer_GNet = torch.optim.Adam([
-                    # {'params': base_params},
-                    # {'params': GNet.toWeight.parameters(), 'lr':  args.LR}
-                # ], lr=args.LR*0.1)
+    # optimizer_GNet = torch.optim.Adam([
+    # {'params': base_params},
+    # {'params': GNet.toWeight.parameters(), 'lr':  args.LR}
+    # ], lr=args.LR*0.1)
 
     Attention_lr_scheduler = lr_scheduler.StepLR(optimizer_attention, step_size=40, gamma=0.5)
     Classifier_lr_scheduler = lr_scheduler.StepLR(optimizer_classifier, step_size=40, gamma=0.5)
@@ -641,10 +671,10 @@ def train_model(model, logger, num_epochs=25):
 
     # Gallery 
     Gallery = image_datasets['test'].Gallery
-    galleryFeature = image_datasets['test'].acquireFeature(model,args.batchSize).cpu()
+    galleryFeature = image_datasets['test'].acquireFeature(model, args.batchSize).cpu()
 
     print(type(galleryFeature))
-    print('Gallery size: ',galleryFeature.size())
+    print('Gallery size: ', galleryFeature.size())
 
     for epoch in range(num_epochs):
         print('Epoch {}/{}'.format(epoch, num_epochs - 1))
@@ -652,34 +682,34 @@ def train_model(model, logger, num_epochs=25):
 
         # Each epoch has a training and validation phase
 
-        for phase in [ 'test','train']: ####@@@
-        # for phase in [ 'test']: ###
+        for phase in ['test', 'train']:  ####@@@
+            # for phase in [ 'test']: ###
 
             if phase == 'train':
                 Attention_lr_scheduler.step()
                 Classifier_lr_scheduler.step()
 
-            model.train(False) # To ban batchnorm
+            model.train(False)  # To ban batchnorm
 
-            running_loss = 0.0 
+            running_loss = 0.0
             running_accuracy = 0
             running_cls_loss = 0
-            running_cls_accuracy= 0
+            running_cls_accuracy = 0
 
             Times = 0
 
             # Iterate over data.
             allWeight = {}
-            for k in range(args.Fang*args.Fang):
+            for k in range(args.Fang * args.Fang):
                 allWeight[str(k)] = []
 
             np.random.seed()
 
-            for i,(supportInputs,supportLabels,supportReals,testInputs,testLabels,testReals) in tqdm(enumerate(dataloaders[phase])):
+            for i, (supportInputs, supportLabels, supportReals, testInputs, testLabels, testReals) in tqdm(enumerate(dataloaders[phase])):
 
-                if epoch == 0 and i>4000:
+                if epoch == 0 and i > 4000:
                     break
-                
+
                 Times = Times + 1
 
                 supportInputs = supportInputs.squeeze(0)
@@ -689,22 +719,21 @@ def train_model(model, logger, num_epochs=25):
                 testInputs = testInputs.squeeze(0)
                 testLabels = testLabels.squeeze(0).cuda()
 
-                ways = int(supportInputs.size(0)/args.shots)
+                ways = int(supportInputs.size(0) / args.shots)
 
-                supportFeatures = batchModel(model,supportInputs,requireGrad=False)
-                testFeatures = batchModel(model,testInputs,requireGrad=True)
+                supportFeatures = batchModel(model, supportInputs, requireGrad=False)
+                testFeatures = batchModel(model, testInputs, requireGrad=True)
 
-                #AInputs, BInputs, ABLabels, ABReals = iterateMix(supportInputs,supportFeatures,supportLabels,supportReals,ways=ways, galleryFeature=galleryFeature, args=args)
-                AInputs, BInputs, ABLabels, ABReals = iterateMix(supportInputs,supportFeatures,supportLabels,supportReals, \
-                                                                model=model, \
-                                                                ways=ways, \
-                                                                galleryFeature=galleryFeature, \
-                                                                image_datasets = image_datasets, \
-                                                                Gallery =Gallery, \
-                                                                args=args)
-                
+                # AInputs, BInputs, ABLabels, ABReals = iterateMix(supportInputs,supportFeatures,supportLabels,supportReals,ways=ways, galleryFeature=galleryFeature, args=args)
+                AInputs, BInputs, ABLabels, ABReals = iterateMix(supportInputs, supportFeatures, supportLabels, supportReals, \
+                                                                 model=model, \
+                                                                 ways=ways, \
+                                                                 galleryFeature=galleryFeature, \
+                                                                 image_datasets=image_datasets, \
+                                                                 Gallery=Gallery, \
+                                                                 args=args)
 
-                Batch = (AInputs.size(0)+args.batchSize-1)//args.batchSize
+                Batch = (AInputs.size(0) + args.batchSize - 1) // args.batchSize
 
                 First = True
                 Cfeatures = 1
@@ -718,23 +747,23 @@ def train_model(model, logger, num_epochs=25):
                 '''
 
                 for b in range(Batch):
-                    if b<Batch-1:
-                        _cfeature, weight, middleFeature = model(Variable(AInputs[b*args.batchSize:(b+1)*args.batchSize].cuda(),requires_grad=True),
-                            Variable(BInputs[b*args.batchSize:(b+1)*args.batchSize].cuda(),requires_grad=True),
-                            Variable(fixSquare.expand(args.batchSize,args.Fang*args.Fang,3,84,84).cuda(),requires_grad=False),
-                            Variable(oneSquare.expand(args.batchSize,3,84,84).cuda(),requires_grad=False),
-                            mode='two'
-                            )
-                        _cls = model(_cfeature,B=1,fixSquare=1,oneSquare=1,mode='fc')
+                    if b < Batch - 1:
+                        _cfeature, weight, middleFeature = model(Variable(AInputs[b * args.batchSize:(b + 1) * args.batchSize].cuda(), requires_grad=True),
+                                                                 Variable(BInputs[b * args.batchSize:(b + 1) * args.batchSize].cuda(), requires_grad=True),
+                                                                 Variable(fixSquare.expand(args.batchSize, args.Fang * args.Fang, 3, 84, 84).cuda(), requires_grad=False),
+                                                                 Variable(oneSquare.expand(args.batchSize, 3, 84, 84).cuda(), requires_grad=False),
+                                                                 mode='two'
+                                                                 )
+                        _cls = model(_cfeature, B=1, fixSquare=1, oneSquare=1, mode='fc')
                     else:
-                        _len = AInputs.size(0)-(b*args.batchSize)
-                        _cfeature, weight, middleFeature = model(Variable(AInputs[b*args.batchSize:].cuda(),requires_grad=True),
-                            B=Variable(BInputs[b*args.batchSize:].cuda(),requires_grad=True),
-                            fixSquare=Variable(fixSquare.expand(_len,args.Fang*args.Fang,3,84,84).cuda(),requires_grad=False),
-                            oneSquare=Variable(oneSquare.expand(_len,3,84,84).cuda(),requires_grad=False),
-                            mode='two'
-                            )
-                        _cls = model(_cfeature,B=1,fixSquare=1,oneSquare=1,mode='fc')
+                        _len = AInputs.size(0) - (b * args.batchSize)
+                        _cfeature, weight, middleFeature = model(Variable(AInputs[b * args.batchSize:].cuda(), requires_grad=True),
+                                                                 B=Variable(BInputs[b * args.batchSize:].cuda(), requires_grad=True),
+                                                                 fixSquare=Variable(fixSquare.expand(_len, args.Fang * args.Fang, 3, 84, 84).cuda(), requires_grad=False),
+                                                                 oneSquare=Variable(oneSquare.expand(_len, 3, 84, 84).cuda(), requires_grad=False),
+                                                                 mode='two'
+                                                                 )
+                        _cls = model(_cfeature, B=1, fixSquare=1, oneSquare=1, mode='fc')
 
                     if First:
                         First = False
@@ -742,25 +771,25 @@ def train_model(model, logger, num_epochs=25):
                         Weights = weight
                         Ccls = _cls
                     else:
-                        Cfeatures = torch.cat((Cfeatures,_cfeature),dim=0)
-                        Weights = torch.cat((Weights,weight),dim=0)
-                        Ccls = torch.cat((Ccls,_cls),dim=0)
+                        Cfeatures = torch.cat((Cfeatures, _cfeature), dim=0)
+                        Weights = torch.cat((Weights, weight), dim=0)
+                        Ccls = torch.cat((Ccls, _cls), dim=0)
 
-                Weights = Weights.transpose(1,0) # 9*Batch
+                Weights = Weights.transpose(1, 0)  # 9*Batch
 
-                for k in range(args.Fang*args.Fang):
+                for k in range(args.Fang * args.Fang):
                     allWeight[str(k)] = allWeight[str(k)] + Weights[k].view(-1).tolist()
 
-                center = Cfeatures.view(ways,args.shots*(1+args.augnum),-1).mean(1) # [ways,512]
-                dists = euclidean_dist(testFeatures,center, model) # [ways*test_num,ways]
+                center = Cfeatures.view(ways, args.shots * (1 + args.augnum), -1).mean(1)  # [ways,512]
+                dists = euclidean_dist(testFeatures, center, model)  # [ways*test_num,ways]
 
-                log_p_y = F.log_softmax(-dists,dim=1).view(ways, args.test_num, -1) # [ways,test_num,ways]
+                log_p_y = F.log_softmax(-dists, dim=1).view(ways, args.test_num, -1)  # [ways,test_num,ways]
 
-                loss_val = -log_p_y.gather(2, testLabels.view(ways,args.test_num,1)).squeeze().view(-1).mean()
-                
-                _,y_hat = log_p_y.max(2)
+                loss_val = -log_p_y.gather(2, testLabels.view(ways, args.test_num, 1)).squeeze().view(-1).mean()
 
-                acc_val = torch.eq(y_hat, testLabels.view(ways,args.test_num)).float().mean()
+                _, y_hat = log_p_y.max(2)
+
+                acc_val = torch.eq(y_hat, testLabels.view(ways, args.test_num)).float().mean()
 
                 # statistics
                 running_loss += loss_val.item()
@@ -769,7 +798,7 @@ def train_model(model, logger, num_epochs=25):
                 # backward + optimize only if in training phase
 
                 if phase == 'train':
-                    if (args.fixAttention==0):
+                    if (args.fixAttention == 0):
                         optimizer_attention.zero_grad()
                         loss_val.backward(retain_graph=True)
                         optimizer_attention.step()
@@ -780,34 +809,33 @@ def train_model(model, logger, num_epochs=25):
                     _, preds = torch.max(Ccls, 1)
                     ABReals = ABReals.view(ABReals.size(0)).cuda()
                     loss_cls = clsCriterion(Ccls, ABReals)
-                    if epoch!=0 and (args.fixCls==0):
+                    if epoch != 0 and (args.fixCls == 0):
                         optimizer_classifier.zero_grad()
                         loss_val.backward(retain_graph=True)
                         # loss_cls.backward()
                         optimizer_classifier.step()
 
                     running_cls_loss += loss_cls.item()
-                    running_cls_accuracy += torch.eq(preds,ABReals).float().mean()
+                    running_cls_accuracy += torch.eq(preds, ABReals).float().mean()
 
-            epoch_loss = running_loss / (Times*1.0)
-            epoch_accuracy = running_accuracy / (Times*1.0)
-            epoch_cls_loss = running_cls_loss / (Times*1.0)
-            epoch_cls_accuracy = running_cls_accuracy / (Times*1.0)
-
+            epoch_loss = running_loss / (Times * 1.0)
+            epoch_accuracy = running_accuracy / (Times * 1.0)
+            epoch_cls_loss = running_cls_loss / (Times * 1.0)
+            epoch_cls_accuracy = running_cls_accuracy / (Times * 1.0)
 
             info = {
-                phase+'loss': epoch_loss,
-                phase+'accuracy': epoch_accuracy,
-                phase+'_cls_loss': epoch_cls_loss,
-                phase+'_cls_accuracy': epoch_cls_accuracy,
+                phase + 'loss': epoch_loss,
+                phase + 'accuracy': epoch_accuracy,
+                phase + '_cls_loss': epoch_cls_loss,
+                phase + '_cls_accuracy': epoch_cls_accuracy,
             }
 
             # for tag, value in info.items():
-                # logger.scalar_summary(tag, value, epoch+1)
+            # logger.scalar_summary(tag, value, epoch+1)
 
             # Logging
             logger.info("=========================================")
-            logger.info("Epoch {0}, Phase {1}".format(epoch,phase))
+            logger.info("Epoch {0}, Phase {1}".format(epoch, phase))
             logger.info("=========================================")
             logger.info("loss: {0:.4f};".format(epoch_loss))
             logger.info("accuracy: {0:.4f};".format(epoch_accuracy))
@@ -824,47 +852,41 @@ def train_model(model, logger, num_epochs=25):
                 else:
                     best_model_wts = copy.deepcopy(model.state_dict())
 
-        
         print()
-        if epoch%2 == 0 :
-            
-            torch.save(best_model_wts,os.path.join(rootdir,'models/'+str(args.tensorname)+'.t7'))
+        if epoch % 2 == 0:
+            torch.save(best_model_wts, os.path.join(rootdir, 'models/' + str(args.tensorname) + '.t7'))
             print('save!')
-        
 
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}s'.format(
         time_elapsed // 60, time_elapsed % 60))
     print('Best test Loss: {:4f}'.format(best_loss))
     print('Best test acc: {:4f}'.format(best_acc))
-    
+
     # load best model weights
     model.load_state_dict(best_model_wts)
     return model
 
 
 # .. to load your previously training model:
-#model.load_state_dict(torch.load('mytraining.pt'))
+# model.load_state_dict(torch.load('mytraining.pt'))
 def run():
-
     logger = get_logger(name=args.name_log)
     model = GNet()
     print(args.tensorname)
 
-
     # if torch.cuda.device_count() > 1:
-        # print("Let's use", torch.cuda.device_count(), "GPUs!")
-        # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+    # print("Let's use", torch.cuda.device_count(), "GPUs!")
+    # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
     if torch.cuda.device_count() > 0:
         model = nn.DataParallel(model)
 
-    if args.GNet!='none':
-        model.load_state_dict(torch.load('models/'+args.GNet+'.t7', map_location=lambda storage, loc: storage))
-        print('loading ',args.GNet)
+    if args.GNet != 'none':
+        model.load_state_dict(torch.load('models/' + args.GNet + '.t7', map_location=lambda storage, loc: storage))
+        print('loading ', args.GNet)
     model = model.cuda()
 
-
-    model = train_model(model, logger, num_epochs=100)    ##
+    model = train_model(model, logger, num_epochs=100)  ##
 
     # ... after training, save your model 
 
