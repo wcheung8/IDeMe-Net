@@ -24,6 +24,7 @@ import copy
 import time
 import math
 from resnet import *
+import random
 
 from logger import get_logger
 
@@ -269,7 +270,7 @@ if args.resnet==0:
             return out
 else:
     class smallNet(nn.Module):
-        def __init__(self):
+        def __init__(self, mixupLayer):
             super(smallNet, self).__init__()
 
             def conv_block(in_channels, out_channels):
@@ -280,13 +281,13 @@ else:
                     nn.MaxPool2d(2)
                 )
 
-            if args.mixupLayer == 0:
+            if mixupLayer == 0:
                 input_size = 6 
-            elif args.mixupLayer == 1:
+            elif mixupLayer == 1:
                 input_size = 128
-            elif args.mixupLayer == 2:
+            elif mixupLayer == 2:
                 input_size = 256
-            elif args.mixupLayer == 3:
+            elif mixupLayer == 3:
                 input_size = 512
 
             # self.encoder = nn.Sequential(  # 6*224*224
@@ -305,13 +306,13 @@ else:
             )
             print(self.encoder)
 
-            if args.mixupLayer == 0:
+            if mixupLayer == 0:
                 self.final_feat_dim = 1600
-            elif args.mixupLayer == 1:
+            elif mixupLayer == 1:
                 self.final_feat_dim = 400
-            elif args.mixupLayer == 2:
+            elif mixupLayer == 2:
                 self.final_feat_dim = 64
-            elif args.mixupLayer == 3:
+            elif mixupLayer == 3:
                 self.final_feat_dim = 16
 
         def forward(self, inputs):
@@ -395,16 +396,18 @@ class GNet(nn.Module):
         super(GNet, self).__init__()
         # self.ANet = weightNet()
         # self.BNet = weightNet()
-        self.attentionNet = smallNet()
 
-        self.toWeight = nn.Sequential(
-                nn.Linear(self.attentionNet.final_feat_dim,args.Fang*args.Fang),
-                # nn.ReLU(),
-                # nn.Linear(100,args.Fang*args.Fang),
-                # nn.Linear(1024,9),
-                # nn.Tanh(),
-                # nn.ReLU(),
-            )
+        #self.attentionNet = smallNet()
+        self.attentionNets = [smallNet(mixupLayer=i).cuda() for i in range(4)]
+
+        self.toWeights = [nn.Sequential(
+                nn.Linear(self.attentionNets[i].final_feat_dim,args.Fang*args.Fang),
+            ).cuda() for i in range(4)]
+
+        # self.toWeight = nn.Sequential(
+        #         nn.Linear(self.attentionNets[-1].final_feat_dim,args.Fang*args.Fang),
+
+        #     )
 
         self.CNet = weightNet()
         self.fc = nn.Linear(self.CNet.final_feat_dim,64)
@@ -434,15 +437,19 @@ class GNet(nn.Module):
 
             if args.simple_mix == 0:
 
+                args.mixupLayer = random.randint(0, 3)
+
                 A = self.CNet.embed(A, intermediate=args.mixupLayer)
                 B = self.CNet.embed(B, intermediate=args.mixupLayer)
 
 
                 # Calculate 3*3 weight matrix
                 batchSize, dim, size, size = A.shape
-                feature = self.attentionNet(torch.cat((A,B),1))
+                # feature = self.attentionNet(torch.cat((A,B),1))
+                feature = self.attentionNets[args.mixupLayer](torch.cat((A, B), 1))
                 # print('feature shape: ', feature.shape)
-                weight = self.toWeight(feature) # [batch,3*3]
+                weight = self.toWeights[args.mixupLayer](feature)
+                # weight = self.toWeight(feature) # [batch,3*3]
 
                 fixSquare, oneSquare = self.getSquares(dim, size)
                 
@@ -736,10 +743,25 @@ def train_model(model, logger, num_epochs=25):
 
     # if torch.cuda.device_count() > 1:  
     if args.scratch == 0:
+
+
+        # optimizer_attention = torch.optim.Adam([
+        #             {'params': model.module.attentionNet.parameters()},
+        #             {'params': model.module.toWeight.parameters(), 'lr':  args.LR}
+        #         ], lr=args.LR) # 0.001
+
         optimizer_attention = torch.optim.Adam([
-                    {'params': model.module.attentionNet.parameters()},
-                    {'params': model.module.toWeight.parameters(), 'lr':  args.LR}
+                    {'params': model.module.attentionNets[0].parameters()},
+                    {'params': model.module.attentionNets[1].parameters()},
+                    {'params': model.module.attentionNets[2].parameters()},
+                    {'params': model.module.attentionNets[3].parameters()},
+                    {'params': model.module.toWeights[0].parameters(), 'lr':  args.LR},
+                    {'params': model.module.toWeights[1].parameters(), 'lr':  args.LR},
+                    {'params': model.module.toWeights[2].parameters(), 'lr':  args.LR},
+                    {'params': model.module.toWeights[3].parameters(), 'lr':  args.LR}
                 ], lr=args.LR) # 0.001
+
+
         optimizer_classifier = torch.optim.Adam([
                     {'params': model.module.CNet.parameters(),'lr': args.clsLR*0.1},
                     {'params': model.module.fc.parameters(), 'lr':  args.clsLR}
@@ -747,6 +769,7 @@ def train_model(model, logger, num_epochs=25):
         optimizer_scale = torch.optim.Adam([
                     {'params': model.module.scale}
                 ], lr=args.LR) # 0.001
+
     else:
         optimizer_attention = torch.optim.Adam([
                     {'params': model.module.ANet.parameters()},
