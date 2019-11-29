@@ -70,6 +70,9 @@ class Options():
         parser.add_argument('--classifier_epoch', default=30,type=int,
                             help='whether resnet18 backbone')
 
+        parser.add_argument('--dataset', default='miniImageNet',type=str,
+                            help='whether resnet18 backbone')
+
 
         self.parser = parser
 
