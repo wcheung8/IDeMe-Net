@@ -22,7 +22,11 @@ args = Options().parse()
 
 userName = getpass.getuser()
 
-pathminiImageNet = '/home/'+userName+'/data/miniImagenet/'
+if args.dataset == 'miniImageNet':
+    pathminiImageNet = '/home/'+userName+'/data/miniImagenet/'
+elif args.dataset == 'CUB':
+    pathminiImageNet = '/home/'+userName+ '/data/CUB/CUB_200_2011'
+
 pathImages = os.path.join(pathminiImageNet,'images/')
 # LAMBDA FUNCTIONS
 filenameToPILImage = lambda x: Image.open(x)
@@ -36,6 +40,14 @@ patch_yr = [74,148,224,74,148,224,74,148,224]
 
 class miniImagenetOneshotDataset(data.Dataset):
     def __init__(self, dataroot = '/home/'+userName+'/data/miniImagenet', type = 'train',ways=5,shots=1,test_num=1,epoch=100,galleryNum = 10):
+        
+
+        if args.dataset == 'miniImageNet':
+            dataroot = '/home/'+userName+'/data/miniImagenet/'
+        elif args.dataset == 'CUB':
+            dataroot = '/home/'+userName+ '/data/CUB/CUB_200_2011'
+
+
         # oneShot setting
         self.ways = ways
         self.shots = shots
