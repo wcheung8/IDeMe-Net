@@ -1,0 +1,22 @@
+cd /home/root
+
+# create directory for CUB
+cd data
+mkdir CUB
+cd CUB
+mkdir CUB_200_2011
+
+# download CUB images
+cd /home/root
+git clone https://github.com/wyharveychen/CloserLookFewShot.git
+
+cd CloserLookFewShot/filelists/CUB
+chmod +x download_CUB.sh
+./download_CUB.sh
+
+# preprocess images and save to the right directory
+python CUB_data.py
+
+
+# upload data split files in /datasplit_CUB to /home/root/data/CUB/CUB_200_2011
+
