@@ -12,8 +12,19 @@ import numpy as np
 import getpass  
 userName = getpass.getuser()
 
+from option import Options
 
-pathminiImageNet = '/home/'+userName+'/data/miniImagenet/'
+
+args = Options().parse()
+
+
+
+if args.dataset == 'miniImageNet':
+    pathminiImageNet = '/home/'+userName+'/data/miniImagenet/'
+elif args.dataset == 'CUB':
+    pathminiImageNet = '/home/'+userName+ '/data/CUB/CUB_200_2011'
+
+
 pathImages = os.path.join(pathminiImageNet,'images/')
 # LAMBDA FUNCTIONS
 filenameToPILImage = lambda x: Image.open(x)
@@ -36,6 +47,13 @@ for i in range(Fang):
 
 class miniImagenetEmbeddingDataset(data.Dataset):
     def __init__(self, dataroot = '/home/'+userName+'/data/miniImagenet', type = 'train'):
+
+        if args.dataset == 'miniImageNet':
+            dataroot = '/home/'+userName+'/data/miniImagenet/'
+        elif args.dataset == 'CUB':
+            dataroot = '/home/'+userName+ '/data/CUB/CUB_200_2011'
+
+
         if type == 'specialtest':
             type = 'test'
         # Transformations to the image
@@ -97,13 +115,17 @@ class miniImagenetEmbeddingDataset(data.Dataset):
         self.type = type
         self.data = collections.OrderedDict(sorted(self.data.items()))
         self.classes_dict = {self.data.keys()[i]:i  for i in range(len(self.data.keys()))} # map NLabel to id(0-99)
+
+        print(len(self.data.keys()))
+
         self.bhToClass = {i:self.data.keys()[i]  for i in range(len(self.data.keys()))}
 
         self.Files = []
         self.belong = []
 
         for c in range(len(self.data.keys())):
-            self.data[self.data.keys()[c]] = self.data[self.data.keys()[c]][:500]
+            # self.data[self.data.keys()[c]] = self.data[self.data.keys()[c]][:500]
+            self.data[self.data.keys()[c]] = self.data[self.data.keys()[c]]
             for file in self.data[self.data.keys()[c]]:
                 self.Files.append(file)
                 self.belong.append(c)
@@ -111,6 +133,8 @@ class miniImagenetEmbeddingDataset(data.Dataset):
         self.Files = self.Files + self.Files
         self.belong = self.belong + self.belong
         self.__size = len(self.Files)
+
+        print(max(self.belong), min(self.belong))
 
         print(type,self.__size,len(self.data.keys()))
 
@@ -121,6 +145,9 @@ class miniImagenetEmbeddingDataset(data.Dataset):
 
         path = os.path.join(pathImages,str(File))
         images = self.transform(path)
+
+        # print(path)
+        #print(images.shape)
 
         p = np.random.randint(0,3)
         if p<2:
@@ -135,9 +162,14 @@ class miniImagenetEmbeddingDataset(data.Dataset):
 
             Bimages = self.transform(os.path.join(pathImages,str(BFile)))
 
+            if images.shape != (3, 84, 84):
+                print(path, images.shape, Bimages.shape)
+
             for k in range(Fang*Fang):
                 weight = np.random.uniform(0,1)
                 images[:,patch_xl[k]:patch_xr[k],patch_yl[k]:patch_yr[k]] = weight*images[:,patch_xl[k]:patch_xr[k],patch_yl[k]:patch_yr[k]] + (1-weight) * Bimages[:,patch_xl[k]:patch_xr[k],patch_yl[k]:patch_yr[k]]
+
+            # print(path, images.shape)
 
         return images,torch.LongTensor([c])
 
