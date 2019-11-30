@@ -17,7 +17,7 @@ for split in ['base', 'val', 'novel']:
     
     img_dict = {'filename':[],'label':[]}
     
-    with open('filelists/CUB/' + split +'.json') as json_file:
+    with open('/home/root/CloserLookFewShot/filelists/CUB/' + split +'.json') as json_file:
         data = json.load(json_file)
         for i, im in tqdm(enumerate(data["image_names"])):
             #print(im)
