@@ -5,6 +5,8 @@ cd data
 mkdir CUB
 cd CUB
 mkdir CUB_200_2011
+cd CUB_200_2011
+mkdir images
 
 # download CUB images
 cd /home/root
@@ -19,4 +21,3 @@ python CUB_data.py
 
 
 # upload data split files in /datasplit_CUB to /home/root/data/CUB/CUB_200_2011
-
