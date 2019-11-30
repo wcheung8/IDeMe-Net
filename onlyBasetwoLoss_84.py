@@ -958,8 +958,8 @@ def train_model(model, logger, num_epochs=25):
                 phase+'_cls_accuracy': epoch_cls_accuracy,
             }
 
-            if epoch == 0 and phase == 'test':
-                save_obj(allWeight, args.tensorname+'_weights')
+            # if epoch == 0 and phase == 'test':
+            #     save_obj(allWeight, args.tensorname+'_weights')
 
             # for tag, value in info.items():
             #     logger.scalar_summary(tag, value, epoch+1)
