@@ -437,7 +437,8 @@ class GNet(nn.Module):
 
             if args.simple_mix == 0:
 
-                args.mixupLayer = random.randint(0, 3)
+                # args.mixupLayer = random.randint(0, 3)
+                args.mixupLayer = random.randint(0, 1)
 
                 A = self.CNet.embed(A, intermediate=args.mixupLayer)
                 B = self.CNet.embed(B, intermediate=args.mixupLayer)
