@@ -1,6 +1,4 @@
-# Image Deformation Meta-Networks for One-Shot Learning
-
-A PyTorch implementation of "Image Deformation Meta-Networks for One-Shot Learning"(CVPR 2019 Oral).
+# Learn to hallucinate from paired features for Few-shot Classification
 
 ```
 If using google cloud, please follow googleCloud_setup_py27.txt to set up your environment
